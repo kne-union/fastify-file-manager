@@ -1,0 +1,44 @@
+{
+  "name": "@kne/fastify-file-manager",
+  "version": "0.1.0",
+  "description": "用于管理静态文件上传查看等",
+  "main": "index.js",
+  "scripts": {
+    "init": "husky",
+    "build:md": "npx @kne/md-doc",
+    "start:md": "npx @kne/md-doc --watch",
+    "prettier": "prettier --config .prettierrc --write '{libs/**/*,index}.{js,jsx,ts,tsx,json,css,scss}'",
+    "lint-staged": "npx lint-staged"
+  },
+  "lint-staged": {
+    "{libs/**/*,index}.{js,jsx,ts,tsx,json,css,scss}": [
+      "prettier --config .prettierrc --write",
+      "git add"
+    ]
+  },
+  "files": [
+    "index.js",
+    "libs"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kne-union/fastify-file-manager.git"
+  },
+  "keywords": [],
+  "author": "linzp",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/kne-union/fastify-file-manager/issues"
+  },
+  "homepage": "https://github.com/kne-union/fastify-file-manager#readme",
+  "devDependencies": {
+    "husky": "^9.0.11",
+    "prettier": "^3.2.5"
+  },
+  "dependencies": {
+    "@fastify/autoload": "^5.8.2",
+    "@fastify/multipart": "^8.2.0",
+    "@fastify/static": "^7.0.4",
+    "fastify-plugin": "^4.5.1"
+  }
+}
