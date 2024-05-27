@@ -4,7 +4,7 @@ const crypto = require('crypto');
 const path = require('path');
 
 module.exports = fp(async (fastify, options) => {
-  const uploadToFileSystem = async ({ file }) => {
+  const uploadToFileSystem = async ({ file, namespace }) => {
     const { filename, encoding, mimetype } = file;
     const buffer = await file.toBuffer();
     const hash = crypto.createHash('md5');
@@ -13,9 +13,17 @@ module.exports = fp(async (fastify, options) => {
     const extension = path.extname(filename);
     const filepath = path.resolve(options.root, `${digest}${extension}`);
     await fs.writeFile(filepath, buffer);
-
+    console.log({
+      filename,
+      namespace,
+      encoding,
+      mimetype,
+      hash: digest,
+      size: buffer.byteLength
+    });
     return await fastify.models.fileManager.create({
       filename,
+      namespace,
       encoding,
       mimetype,
       hash: digest,
@@ -23,8 +31,10 @@ module.exports = fp(async (fastify, options) => {
     });
   };
 
-  const getFileUrl = async ({ id }) => {
-    const file = await fastify.models.fileManager.findByPk(id);
+  const getFileUrl = async ({ id, namespace }) => {
+    const file = await fastify.models.fileManager.findByPk(id, {
+      where: { namespace }
+    });
     if (!file) {
       throw new Error('文件不存在');
     }
@@ -32,8 +42,10 @@ module.exports = fp(async (fastify, options) => {
     return `${options.prefix}/file/${file.hash}${extension}?filename=${file.filename}`;
   };
 
-  const getFileInfo = async ({ id }) => {
-    const file = await fastify.models.fileManager.findByPk(id);
+  const getFileInfo = async ({ id, namespace }) => {
+    const file = await fastify.models.fileManager.findByPk(id, {
+      where: { namespace }
+    });
     if (!file) {
       throw new Error('文件不存在');
     }
@@ -43,5 +55,29 @@ module.exports = fp(async (fastify, options) => {
     });
   };
 
-  fastify.decorate('fileManagerServices', { uploadToFileSystem, getFileUrl, getFileInfo });
+  const getFileList = async ({ filter, namespace, currentPage, perPage }) => {
+    const queryFilter = { namespace };
+    const { count, rows } = await fastify.models.fileManager.findAndCountAll({
+      where: queryFilter,
+      offset: currentPage * (currentPage - 1),
+      limit: perPage
+    });
+    return {
+      pageData: rows,
+      totalCount: count
+    };
+  };
+
+  const deleteFile = async ({ id, namespace }) => {
+    const file = await fastify.models.fileManager.findByPk(id, {
+      where: { namespace }
+    });
+    if (!file) {
+      throw new Error('文件不存在');
+    }
+
+    await file.destroy();
+  };
+
+  fastify.decorate('fileManagerServices', { uploadToFileSystem, getFileUrl, getFileInfo, getFileList, deleteFile });
 });

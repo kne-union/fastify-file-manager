@@ -6,10 +6,18 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.STRING, allowNull: false
     }, hash: {
       type: DataTypes.STRING, allowNull: false
-    }, tag: {
+    }, namespace: {
       type: DataTypes.STRING, defaultValue: 'default'
     }, size: {
       type: DataTypes.INTEGER, allowNull: false
     }, encoding: DataTypes.STRING, mimetype: DataTypes.STRING
+  }, {
+    indexes: [{
+      fields: ['namespace']
+    }, {
+      fields: ['filename']
+    }, {
+      fields: ['hash']
+    }]
   });
 };
