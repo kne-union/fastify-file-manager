@@ -13,14 +13,6 @@ module.exports = fp(async (fastify, options) => {
     const extension = path.extname(filename);
     const filepath = path.resolve(options.root, `${digest}${extension}`);
     await fs.writeFile(filepath, buffer);
-    console.log({
-      filename,
-      namespace,
-      encoding,
-      mimetype,
-      hash: digest,
-      size: buffer.byteLength
-    });
     return await fastify.models.fileManager.create({
       filename,
       namespace,
