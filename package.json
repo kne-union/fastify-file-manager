@@ -1,6 +1,6 @@
 {
   "name": "@kne/fastify-file-manager",
-  "version": "0.1.0",
+  "version": "0.1.1.alpha.0",
   "description": "用于管理静态文件上传查看等",
   "main": "index.js",
   "scripts": {

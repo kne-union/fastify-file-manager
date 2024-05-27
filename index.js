@@ -9,7 +9,7 @@ module.exports = fp(
       {
         root: path.join(process.cwd(), 'static'),
         namespace: 'default',
-        prefix: '/static',
+        prefix: '/api/static',
         multipart: {},
         static: {},
         authenticateFileRead: async () => {},
