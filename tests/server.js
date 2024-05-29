@@ -6,7 +6,6 @@ const path = require('path');
 
 const sqliteStorage = path.resolve('./database.sqlite');
 
-
 fastify.register(require('@kne/fastify-sequelize'), {
   db: {
     storage: sqliteStorage
@@ -16,6 +15,10 @@ fastify.register(require('@kne/fastify-sequelize'), {
 });
 
 fastify.register(require('../index'));
+
+fastify.register(require('fastify-plugin')(async (fastify)=>{
+  await fastify.sequelize.sync();
+}));
 
 fastify.addHook('onSend', async (request, reply, payload) => {
   if (reply.getHeader('content-type').indexOf('application/json') > -1) {

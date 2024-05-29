@@ -19,12 +19,15 @@ module.exports = fp(
       options
     );
     await fs.ensureDir(options.root);
-    await fastify.sequelize.addModels(path.resolve(__dirname, './models'));
-
     fastify.register(require('@fastify/multipart'), options.multipart);
-    fastify.register(autoload, {
-      dir: path.resolve(__dirname, './libs'),
-      options
+    fastify.register(require('@kne/fastify-namespace'), {
+      name: 'fileManager',
+      options,
+      modules: [
+        ['models', await fastify.sequelize.addModels(path.resolve(__dirname, './libs/models'))],
+        ['services', path.resolve(__dirname, './libs/services')],
+        ['controllers', path.resolve(__dirname, './libs/controllers')]
+      ]
     });
     fastify.register(
       require('@fastify/static'),
