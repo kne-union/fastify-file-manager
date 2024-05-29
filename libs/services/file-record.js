@@ -4,6 +4,7 @@ const crypto = require('crypto');
 const path = require('path');
 
 module.exports = fp(async (fastify, options) => {
+  const { models, services } = fastify.fileManager;
   const uploadToFileSystem = async ({ file, namespace }) => {
     const { filename, encoding, mimetype } = file;
     const buffer = await file.toBuffer();
@@ -13,7 +14,7 @@ module.exports = fp(async (fastify, options) => {
     const extension = path.extname(filename);
     const filepath = path.resolve(options.root, `${digest}${extension}`);
     await fs.writeFile(filepath, buffer);
-    return await fastify.models.fileManager.create({
+    return await models.fileRecord.create({
       filename,
       namespace,
       encoding,
@@ -24,7 +25,7 @@ module.exports = fp(async (fastify, options) => {
   };
 
   const getFileUrl = async ({ id, namespace }) => {
-    const file = await fastify.models.fileManager.findByPk(id, {
+    const file = await models.fileRecord.findByPk(id, {
       where: { namespace }
     });
     if (!file) {
@@ -35,7 +36,7 @@ module.exports = fp(async (fastify, options) => {
   };
 
   const getFileInfo = async ({ id, namespace }) => {
-    const file = await fastify.models.fileManager.findByPk(id, {
+    const file = await models.fileRecord.findByPk(id, {
       where: { namespace }
     });
     if (!file) {
@@ -49,7 +50,7 @@ module.exports = fp(async (fastify, options) => {
 
   const getFileList = async ({ filter, namespace, currentPage, perPage }) => {
     const queryFilter = { namespace };
-    const { count, rows } = await fastify.models.fileManager.findAndCountAll({
+    const { count, rows } = await models.fileRecord.findAndCountAll({
       where: queryFilter,
       offset: currentPage * (currentPage - 1),
       limit: perPage
@@ -61,7 +62,7 @@ module.exports = fp(async (fastify, options) => {
   };
 
   const deleteFile = async ({ id, namespace }) => {
-    const file = await fastify.models.fileManager.findByPk(id, {
+    const file = await models.fileRecord.findByPk(id, {
       where: { namespace }
     });
     if (!file) {
@@ -70,6 +71,5 @@ module.exports = fp(async (fastify, options) => {
 
     await file.destroy();
   };
-
-  fastify.decorate('fileManagerServices', { uploadToFileSystem, getFileUrl, getFileInfo, getFileList, deleteFile });
+  services.fileRecord = { uploadToFileSystem, getFileUrl, getFileInfo, getFileList, deleteFile };
 });

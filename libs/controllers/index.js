@@ -1,6 +1,7 @@
 const fp = require('fastify-plugin');
 
 module.exports = fp(async (fastify, options) => {
+  const { services } = fastify.fileManager;
   fastify.post(
     `${options.prefix}/upload`,
     {
@@ -12,7 +13,7 @@ module.exports = fp(async (fastify, options) => {
         throw new Error('不能获取到上传文件');
       }
       //1. 保存到服务器目录 2.对接oss
-      return await fastify.fileManagerServices.uploadToFileSystem({ file, namespace: options.namespace });
+      return await services.fileRecord.uploadToFileSystem({ file, namespace: options.namespace });
     }
   );
 
@@ -32,7 +33,7 @@ module.exports = fp(async (fastify, options) => {
     },
     async request => {
       const { id } = request.params;
-      return await fastify.fileManagerServices.getFileUrl({ id, namespace: options.namespace });
+      return await services.fileRecord.getFileUrl({ id, namespace: options.namespace });
     }
   );
 
@@ -60,7 +61,7 @@ module.exports = fp(async (fastify, options) => {
     async (request, reply) => {
       const { id } = request.params;
       const { attachment, filename: targetFilename } = request.query;
-      const { targetFileName, filename } = await fastify.fileManagerServices.getFileInfo({
+      const { targetFileName, filename } = await services.fileRecord.getFileInfo({
         id,
         namespace: options.namespace
       });
@@ -81,7 +82,7 @@ module.exports = fp(async (fastify, options) => {
         perPage: 20,
         currentPage: 1
       });
-      return await fastify.fileManagerServices.getFileList({
+      return await services.fileRecord.getFileList({
         filter,
         namespace: options.namespace,
         perPage,
@@ -106,7 +107,7 @@ module.exports = fp(async (fastify, options) => {
     },
     async request => {
       const { id } = request.body;
-      await fastify.fileManagerServices.deleteFile({ id, namespace: options.namespace });
+      await services.fileRecord.deleteFile({ id, namespace: options.namespace });
       return {};
     }
   );
