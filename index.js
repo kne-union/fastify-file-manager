@@ -1,5 +1,4 @@
 const fp = require('fastify-plugin');
-const autoload = require('@fastify/autoload');
 const path = require('path');
 const fs = require('fs-extra');
 

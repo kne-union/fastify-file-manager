@@ -39,7 +39,6 @@
     "sqlite3": "^5.1.7"
   },
   "dependencies": {
-    "@fastify/autoload": "^5.8.2",
     "@fastify/multipart": "^8.2.0",
     "@fastify/static": "^7.0.4",
     "@kne/fastify-namespace": "^0.1.0",
