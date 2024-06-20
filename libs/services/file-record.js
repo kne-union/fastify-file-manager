@@ -16,7 +16,7 @@ module.exports = fp(async (fastify, options) => {
     await fs.writeFile(filepath, buffer);
     return await models.fileRecord.create({
       filename,
-      namespace,
+      namespace: namespace || options.namespace,
       encoding,
       mimetype,
       hash: digest,
@@ -26,7 +26,7 @@ module.exports = fp(async (fastify, options) => {
 
   const getFileUrl = async ({ id, namespace }) => {
     const file = await models.fileRecord.findByPk(id, {
-      where: { namespace }
+      where: { namespace: namespace || options.namespace }
     });
     if (!file) {
       throw new Error('文件不存在');
@@ -37,7 +37,7 @@ module.exports = fp(async (fastify, options) => {
 
   const getFileInfo = async ({ id, namespace }) => {
     const file = await models.fileRecord.findByPk(id, {
-      where: { namespace }
+      where: { namespace: namespace || options.namespace }
     });
     if (!file) {
       throw new Error('文件不存在');
@@ -49,7 +49,7 @@ module.exports = fp(async (fastify, options) => {
   };
 
   const getFileList = async ({ filter, namespace, currentPage, perPage }) => {
-    const queryFilter = { namespace };
+    const queryFilter = { namespace: namespace || options.namespace };
     const { count, rows } = await models.fileRecord.findAndCountAll({
       where: queryFilter,
       offset: currentPage * (currentPage - 1),
@@ -63,7 +63,7 @@ module.exports = fp(async (fastify, options) => {
 
   const deleteFile = async ({ id, namespace }) => {
     const file = await models.fileRecord.findByPk(id, {
-      where: { namespace }
+      where: { namespace: namespace || options.namespace }
     });
     if (!file) {
       throw new Error('文件不存在');
