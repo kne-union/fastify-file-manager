@@ -1,11 +1,9 @@
-module.exports = (sequelize, DataTypes) => {
-  return sequelize.define(
-    'fileRecord',
-    {
-      id: {
+module.exports = ({ DataTypes }) => {
+  return {
+    model: {
+      uuid: {
         type: DataTypes.UUID,
-        defaultValue: DataTypes.UUIDV4,
-        primaryKey: true
+        defaultValue: DataTypes.UUIDV4
       },
       filename: {
         type: DataTypes.STRING,
@@ -26,8 +24,12 @@ module.exports = (sequelize, DataTypes) => {
       encoding: DataTypes.STRING,
       mimetype: DataTypes.STRING
     },
-    {
+    options: {
       indexes: [
+        {
+          unique: true,
+          fields: ['uuid', 'deleted_at']
+        },
         {
           fields: ['namespace']
         },
@@ -39,5 +41,5 @@ module.exports = (sequelize, DataTypes) => {
         }
       ]
     }
-  );
+  };
 };
