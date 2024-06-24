@@ -14,7 +14,7 @@ module.exports = fp(async (fastify, options) => {
     const extension = path.extname(filename);
     const filepath = path.resolve(options.root, `${digest}${extension}`);
     await fs.writeFile(filepath, buffer);
-    return await models.fileRecord.create({
+    const outputFile = await models.fileRecord.create({
       filename,
       namespace: namespace || options.namespace,
       encoding,
@@ -22,11 +22,12 @@ module.exports = fp(async (fastify, options) => {
       hash: digest,
       size: buffer.byteLength
     });
+    return Object.assign({}, outputFile.get({ plain: true }), { id: outputFile.uuid });
   };
 
   const getFileUrl = async ({ id, namespace }) => {
-    const file = await models.fileRecord.findByPk(id, {
-      where: { namespace: namespace || options.namespace }
+    const file = await models.fileRecord.findOne({
+      where: { uuid: id, namespace: namespace || options.namespace }
     });
     if (!file) {
       throw new Error('文件不存在');
@@ -36,14 +37,15 @@ module.exports = fp(async (fastify, options) => {
   };
 
   const getFileInfo = async ({ id, namespace }) => {
-    const file = await models.fileRecord.findByPk(id, {
-      where: { namespace: namespace || options.namespace }
+    const file = await models.fileRecord.findOne({
+      where: { uuid: id, namespace: namespace || options.namespace }
     });
     if (!file) {
       throw new Error('文件不存在');
     }
     const extension = path.extname(file.filename);
     return Object.assign({}, file, {
+      id: file.uuid,
       targetFileName: `${file.hash}${extension}`
     });
   };
@@ -56,14 +58,14 @@ module.exports = fp(async (fastify, options) => {
       limit: perPage
     });
     return {
-      pageData: rows,
+      pageData: rows.map(item => Object.assign({}, item.get({ plain: true }), { id: item.uuid })),
       totalCount: count
     };
   };
 
   const deleteFile = async ({ id, namespace }) => {
-    const file = await models.fileRecord.findByPk(id, {
-      where: { namespace: namespace || options.namespace }
+    const file = await models.fileRecord.findOne({
+      where: { uuid: id, namespace: namespace || options.namespace }
     });
     if (!file) {
       throw new Error('文件不存在');
