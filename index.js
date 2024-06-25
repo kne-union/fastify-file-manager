@@ -9,6 +9,7 @@ module.exports = fp(
         root: path.join(process.cwd(), 'static'),
         namespace: 'default',
         prefix: '/api/static',
+        dbTableNamePrefix: 't_file_manager_',
         multipart: {},
         static: {},
         authenticateFileRead: async () => {},
@@ -26,7 +27,7 @@ module.exports = fp(
         [
           'models',
           await fastify.sequelize.addModels(path.resolve(__dirname, './libs/models'), {
-            prefix: 't_file_manager_'
+            prefix: options.dbTableNamePrefix
           })
         ],
         ['services', path.resolve(__dirname, './libs/services')],
