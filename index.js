@@ -23,7 +23,12 @@ module.exports = fp(
       name: 'fileManager',
       options,
       modules: [
-        ['models', await fastify.sequelize.addModels(path.resolve(__dirname, './libs/models'))],
+        [
+          'models',
+          await fastify.sequelize.addModels(path.resolve(__dirname, './libs/models'), {
+            prefix: 't_file_manager_'
+          })
+        ],
         ['services', path.resolve(__dirname, './libs/services')],
         ['controllers', path.resolve(__dirname, './libs/controllers')]
       ]
