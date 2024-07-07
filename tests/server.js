@@ -35,7 +35,7 @@ fastify.addHook('onSend', async (request, reply, payload) => {
   return payload;
 });
 
-fastify.listen({ port: 3001 }, (err, address) => {
+fastify.listen({ port: 3045 }, (err, address) => {
   if (err) throw err;
   // Server is now listening on ${address}
 });
