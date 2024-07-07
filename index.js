@@ -1,6 +1,7 @@
 const fp = require('fastify-plugin');
 const path = require('path');
 const fs = require('fs-extra');
+const packageJson = require('./package.json');
 
 module.exports = fp(
   async (fastify, options) => {
@@ -8,7 +9,7 @@ module.exports = fp(
       {
         root: path.join(process.cwd(), 'static'),
         namespace: 'default',
-        prefix: '/api/static',
+        prefix: `/api/v${packageJson.version.split('.')[0]}/static`,
         dbTableNamePrefix: 't_file_manager_',
         multipart: {},
         static: {},
