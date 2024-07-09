@@ -2,6 +2,7 @@ const fp = require('fastify-plugin');
 const fs = require('fs-extra');
 const crypto = require('crypto');
 const path = require('path');
+const { NotFound } = require('http-errors');
 
 module.exports = fp(async (fastify, options) => {
   const { models, services } = fastify.fileManager;
@@ -13,8 +14,17 @@ module.exports = fp(async (fastify, options) => {
     hash.update(buffer);
     const digest = hash.digest('hex');
     const extension = path.extname(filename);
-    const filepath = path.resolve(options.root, `${digest}${extension}`);
-    await fs.writeFile(filepath, buffer);
+
+    let storageType;
+    const ossServices = options.ossAdapter();
+    if (typeof ossServices.uploadFile === 'function') {
+      await ossServices.uploadFile({ file: buffer, filename: `${digest}${extension}` });
+      storageType = 'oss';
+    } else {
+      const filepath = path.resolve(options.root, `${digest}${extension}`);
+      await fs.writeFile(filepath, buffer);
+      storageType = 'local';
+    }
 
     const outputFile = await (async create => {
       if (!id) {
@@ -29,6 +39,7 @@ module.exports = fp(async (fastify, options) => {
       file.mimetype = mimetype;
       file.hash = digest;
       file.size = buffer.byteLength;
+      file.storageType = storageType;
       await file.save();
       return file;
     })(() =>
@@ -38,7 +49,8 @@ module.exports = fp(async (fastify, options) => {
         encoding,
         mimetype,
         hash: digest,
-        size: buffer.byteLength
+        size: buffer.byteLength,
+        storageType
       })
     );
     return Object.assign({}, outputFile.get({ plain: true }), { id: outputFile.uuid });
@@ -52,7 +64,20 @@ module.exports = fp(async (fastify, options) => {
       throw new Error('文件不存在');
     }
     const extension = path.extname(file.filename);
-    return `${options.prefix}/file/${file.hash}${extension}?filename=${file.filename}`;
+    const ossServices = options.ossAdapter();
+    if (file.storageType === 'oss' && typeof ossServices.getFileLink !== 'function') {
+      throw new Error('ossAdapter未正确配置无法读取oss类型存储文件');
+    }
+    if (file.storageType === 'oss') {
+      return await ossServices.getFileLink({ filename: `${file.hash}${extension}` });
+    }
+
+    const localPath = `${options.prefix}/file/${file.hash}${extension}?filename=${file.filename}`;
+
+    if (!(await fs.exists(localPath))) {
+      throw new NotFound();
+    }
+    return localPath;
   };
 
   const getFileInfo = async ({ id }) => {
@@ -63,9 +88,19 @@ module.exports = fp(async (fastify, options) => {
       throw new Error('文件不存在');
     }
     const extension = path.extname(file.filename);
-    return Object.assign({}, file, {
+    const targetFileName = `${file.hash}${extension}`;
+    const ossServices = options.ossAdapter();
+    if (file.storageType === 'oss' && typeof ossServices.downloadFile !== 'function') {
+      throw new Error('ossAdapter未正确配置无法读取oss类型存储文件');
+    }
+    let targetFile;
+    if (file.storageType === 'oss') {
+      targetFile = await ossServices.downloadFile({ filename: targetFileName });
+    }
+    return Object.assign({}, file.get({ pain: true }), {
       id: file.uuid,
-      targetFileName: `${file.hash}${extension}`
+      filePath: targetFileName,
+      targetFile
     });
   };
 
