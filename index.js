@@ -15,7 +15,7 @@ module.exports = fp(
         static: {},
         authenticateFileRead: async () => {},
         authenticateFileMange: async () => {},
-        authenticateFileUpload: async () => {}
+        authenticateFileWrite: async () => {}
       },
       options
     );

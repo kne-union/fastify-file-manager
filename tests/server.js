@@ -1,5 +1,5 @@
 const fastify = require('fastify')({
-  logger: true
+  logger: true, querystringParser: str => require('qs').parse(str)
 });
 
 const path = require('path');
@@ -16,7 +16,7 @@ fastify.register(require('@kne/fastify-sequelize'), {
 
 fastify.register(require('../index'));
 
-fastify.register(require('fastify-plugin')(async (fastify)=>{
+fastify.register(require('fastify-plugin')(async (fastify) => {
   await fastify.sequelize.sync();
 }));
 
