@@ -5,7 +5,7 @@ module.exports = fp(async (fastify, options) => {
   fastify.post(
     `${options.prefix}/upload`,
     {
-      onRequest: [options.authenticateFileWrite],
+      onRequest: options.createAuthenticate('file:write'),
       schema: {
         query: {
           type: 'object',
@@ -31,7 +31,7 @@ module.exports = fp(async (fastify, options) => {
   fastify.get(
     `${options.prefix}/file-url/:id`,
     {
-      onRequest: [options.authenticateFileRead],
+      onRequest: options.createAuthenticate('file:read'),
       schema: {
         params: {
           type: 'object',
@@ -51,7 +51,7 @@ module.exports = fp(async (fastify, options) => {
   fastify.get(
     `${options.prefix}/file-id/:id`,
     {
-      onRequest: [options.authenticateFileRead],
+      onRequest: options.createAuthenticate('file:read'),
       schema: {
         query: {
           type: 'object',
@@ -72,17 +72,23 @@ module.exports = fp(async (fastify, options) => {
     async (request, reply) => {
       const { id } = request.params;
       const { attachment, filename: targetFilename } = request.query;
-      const { targetFileName, filename } = await services.fileRecord.getFileInfo({
+      const { filePath, targetFile, filename, mimetype, ...props } = await services.fileRecord.getFileInfo({
         id
       });
-      return attachment ? reply.download(targetFileName, targetFilename || filename) : reply.sendFile(targetFileName);
+      if (targetFile) {
+        const outputFilename = encodeURIComponent(targetFilename || filename);
+        reply.header('Content-Type', mimetype);
+        reply.header('Content-Disposition', attachment ? `attachment; filename="${outputFilename}"` : `filename="${outputFilename}"`);
+        return reply.send(targetFile);
+      }
+      return attachment ? reply.download(filePath, targetFilename || filename) : reply.sendFile(filePath);
     }
   );
 
   fastify.post(
     `${options.prefix}/file-list`,
     {
-      onRequest: [options.authenticateFileMange],
+      onRequest: options.createAuthenticate('file:mange'),
       schema: {
         body: {
           type: 'object',
@@ -123,7 +129,7 @@ module.exports = fp(async (fastify, options) => {
   fastify.post(
     `${options.prefix}/replace-file`,
     {
-      onRequest: [options.authenticateFileMange],
+      onRequest: options.createAuthenticate('file:mange'),
       schema: {
         type: 'object',
         properties: {
@@ -143,7 +149,7 @@ module.exports = fp(async (fastify, options) => {
   fastify.post(
     `${options.prefix}/rename-file`,
     {
-      onRequest: [options.authenticateFileMange],
+      onRequest: options.createAuthenticate('file:mange'),
       schema: {
         type: 'object',
         properties: {
@@ -161,7 +167,7 @@ module.exports = fp(async (fastify, options) => {
   fastify.post(
     `${options.prefix}/delete-files`,
     {
-      onRequest: [options.authenticateFileMange],
+      onRequest: options.createAuthenticate('file:mange'),
       schema: {
         body: {
           type: 'object',

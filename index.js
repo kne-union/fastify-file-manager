@@ -13,9 +13,12 @@ module.exports = fp(
         dbTableNamePrefix: 't_file_manager_',
         multipart: {},
         static: {},
-        authenticateFileRead: async () => {},
-        authenticateFileMange: async () => {},
-        authenticateFileWrite: async () => {}
+        ossAdapter: () => {
+          return {};
+        },
+        createAuthenticate: () => {
+          return [];
+        }
       },
       options
     );

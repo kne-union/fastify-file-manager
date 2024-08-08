@@ -22,7 +22,12 @@ module.exports = ({ DataTypes }) => {
         allowNull: false
       },
       encoding: DataTypes.STRING,
-      mimetype: DataTypes.STRING
+      mimetype: DataTypes.STRING,
+      storageType: {
+        type: DataTypes.STRING,
+        allowNull: false,
+        comment: '存储类型:local本地文件系统,oss远程oss存储'
+      }
     },
     options: {
       indexes: [
