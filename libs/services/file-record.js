@@ -72,12 +72,10 @@ module.exports = fp(async (fastify, options) => {
       return await ossServices.getFileLink({ filename: `${file.hash}${extension}` });
     }
 
-    const localPath = `${options.prefix}/file/${file.hash}${extension}?filename=${file.filename}`;
-
-    if (!(await fs.exists(localPath))) {
+    if (!(await fs.exists(`${options.root}/${file.hash}${extension}`))) {
       throw new NotFound();
     }
-    return localPath;
+    return `${options.prefix}/file/${file.hash}${extension}?filename=${file.filename}`;
   };
 
   const getFileInfo = async ({ id }) => {
