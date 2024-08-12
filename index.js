@@ -11,7 +11,11 @@ module.exports = fp(
         namespace: 'default',
         prefix: `/api/v${packageJson.version.split('.')[0]}/static`,
         dbTableNamePrefix: 't_file_manager_',
-        multipart: {},
+        multipart: {
+          limits: {
+            fileSize: 500 * 1024 * 1024
+          }
+        },
         static: {},
         ossAdapter: () => {
           return {};
