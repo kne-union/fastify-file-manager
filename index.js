@@ -42,8 +42,7 @@ module.exports = fp(
         ['controllers', path.resolve(__dirname, './libs/controllers')]
       ]
     });
-    const staticPlugin = require('@fastify/static');
-    fastify.register(staticPlugin,
+    fastify.register(require('@fastify/static'),
       Object.assign({}, options.static, {
         root: options.root,
         prefix: options.prefix + '/file/',
@@ -51,7 +50,6 @@ module.exports = fp(
         list: false
       })
     );
-      fastify.decorate('staticPlugin', staticPlugin);
   },
   {
     name: 'fastify-file-manager',
