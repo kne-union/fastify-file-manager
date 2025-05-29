@@ -1,5 +1,5 @@
 const fp = require('fastify-plugin');
-const path = require('path');
+const path = require('node:path');
 const fs = require('fs-extra');
 const packageJson = require('./package.json');
 
@@ -31,6 +31,7 @@ module.exports = fp(
     fastify.register(require('@kne/fastify-namespace'), {
       name: 'fileManager',
       options,
+      singleton: true,
       modules: [
         [
           'models',
