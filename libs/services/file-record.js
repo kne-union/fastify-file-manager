@@ -1,8 +1,9 @@
 const fp = require('fastify-plugin');
 const fs = require('fs-extra');
-const crypto = require('crypto');
-const path = require('path');
+const crypto = require('node:crypto');
+const path = require('node:path');
 const { NotFound } = require('http-errors');
+const {Readable} = require('node:stream');
 
 module.exports = fp(async (fastify, options) => {
   const { models, services } = fastify.fileManager;
@@ -12,9 +13,15 @@ module.exports = fp(async (fastify, options) => {
     const hash = crypto.createHash('md5');
     const extension = path.extname(filename);
     let buffer = Buffer.alloc(0);
-
-    // 使用流处理文件数据
-    const stream = file.createReadStream();
+    // 处理文件流或Buffer数据
+    let stream;
+    if (file.createReadStream) {
+      stream = file.createReadStream();
+    } else if (file.file) {
+      stream = file.file;
+    } else {
+      throw new Error('无效的文件格式');
+    }
     for await (const chunk of stream) {
       hash.update(chunk);
       buffer = Buffer.concat([buffer, chunk]);
@@ -25,14 +32,14 @@ module.exports = fp(async (fastify, options) => {
     const ossServices = options.ossAdapter();
     if (typeof ossServices.uploadFile === 'function') {
       // 使用流上传到OSS
-      const uploadStream = file.createReadStream();
+      const uploadStream = file.createReadStream ? file.createReadStream() : Readable.from(buffer);
       await ossServices.uploadFileStream({ stream: uploadStream, filename: `${digest}${extension}` });
       storageType = 'oss';
     } else {
       // 使用流写入本地文件
       const filepath = path.resolve(options.root, `${digest}${extension}`);
       const writeStream = fs.createWriteStream(filepath);
-      const readStream = file.createReadStream();
+      const readStream = file.createReadStream ? file.createReadStream() : Readable.from(buffer);
       await new Promise((resolve, reject) => {
         readStream.pipe(writeStream)
           .on('finish', resolve)
@@ -57,17 +64,15 @@ module.exports = fp(async (fastify, options) => {
       file.storageType = storageType;
       await file.save();
       return file;
-    })(() =>
-      models.fileRecord.create({
-        filename,
-        namespace: namespace || options.namespace,
-        encoding,
-        mimetype,
-        hash: digest,
-        size: buffer.byteLength,
-        storageType
-      })
-    );
+    })(() => models.fileRecord.create({
+      filename,
+      namespace: namespace || options.namespace,
+      encoding,
+      mimetype,
+      hash: digest,
+      size: buffer.byteLength,
+      storageType
+    }));
     return Object.assign({}, outputFile.get({ plain: true }), { id: outputFile.uuid });
   };
 
@@ -135,9 +140,7 @@ module.exports = fp(async (fastify, options) => {
       targetFile = await ossServices.downloadFile({ filename: targetFileName });
     }
     return Object.assign({}, file.get({ pain: true }), {
-      id: file.uuid,
-      filePath: targetFileName,
-      targetFile
+      id: file.uuid, filePath: targetFileName, targetFile
     });
   };
 
@@ -166,13 +169,10 @@ module.exports = fp(async (fastify, options) => {
     }
 
     const { count, rows } = await models.fileRecord.findAndCountAll({
-      where: queryFilter,
-      offset: perPage * (currentPage - 1),
-      limit: perPage
+      where: queryFilter, offset: perPage * (currentPage - 1), limit: perPage
     });
     return {
-      pageData: rows.map(item => Object.assign({}, item.get({ plain: true }), { id: item.uuid })),
-      totalCount: count
+      pageData: rows.map(item => Object.assign({}, item.get({ plain: true }), { id: item.uuid })), totalCount: count
     };
   };
 
@@ -198,8 +198,7 @@ module.exports = fp(async (fastify, options) => {
   };
 
   Object.assign(services, {
-    uploadToFileSystem, uploadFromUrl, getFileUrl, getFileInfo, getFileList, deleteFiles, renameFile,
-    // 兼容之前api，后面可能会删掉
+    uploadToFileSystem, uploadFromUrl, getFileUrl, getFileInfo, getFileList, deleteFiles, renameFile, // 兼容之前api，后面可能会删掉
     fileRecord: { uploadToFileSystem, uploadFromUrl, getFileUrl, getFileInfo, getFileList, deleteFiles, renameFile }
   });
 });
