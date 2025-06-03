@@ -4,6 +4,7 @@ const crypto = require('node:crypto');
 const path = require('node:path');
 const { NotFound } = require('http-errors');
 const os = require('node:os');
+const { Readable } = require('stream');
 
 module.exports = fp(async (fastify, options) => {
   const { models, services } = fastify.fileManager;
@@ -80,13 +81,7 @@ module.exports = fp(async (fastify, options) => {
       await file.save();
       return file;
     })(() => models.fileRecord.create({
-      filename,
-      namespace: namespace || options.namespace,
-      encoding,
-      mimetype,
-      hash: digest,
-      size: fileSize,
-      storageType
+      filename, namespace: namespace || options.namespace, encoding, mimetype, hash: digest, size: fileSize, storageType
     }));
     return Object.assign({}, outputFile.get({ plain: true }), { id: outputFile.uuid });
   };
@@ -96,11 +91,33 @@ module.exports = fp(async (fastify, options) => {
     if (!response.ok) {
       throw new Error('下载文件失败');
     }
+
+    const nodeStream = new Readable({
+      read() {
+        // 空实现，数据通过push方法手动添加
+      }
+    });
+
+    const reader = response.body.getReader();
+    const readChunk = async () => {
+      try {
+        const { done, value } = await reader.read();
+        if (done) {
+          nodeStream.push(null);
+          return;
+        }
+        nodeStream.push(value);
+        readChunk();
+      } catch (err) {
+        nodeStream.emit('error', err);
+      }
+    };
+    readChunk();
     const tempFile = {
       filename: path.basename(url).split('?')[0],
       mimetype: response.headers.get('content-type'),
       encoding: 'binary',
-      file: response.body
+      file: nodeStream
     };
     return await uploadToFileSystem({ id, file: tempFile, namespace });
   };
