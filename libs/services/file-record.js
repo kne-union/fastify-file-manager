@@ -3,7 +3,7 @@ const fs = require('fs-extra');
 const crypto = require('node:crypto');
 const path = require('node:path');
 const { NotFound } = require('http-errors');
-const {Readable} = require('node:stream');
+const os = require('node:os');
 
 module.exports = fp(async (fastify, options) => {
   const { models, services } = fastify.fileManager;
@@ -12,34 +12,46 @@ module.exports = fp(async (fastify, options) => {
     const { filename, encoding, mimetype } = file;
     const hash = crypto.createHash('md5');
     const extension = path.extname(filename);
-    let buffer = Buffer.alloc(0);
-    // 处理文件流或Buffer数据
-    let stream;
-    if (file.createReadStream) {
-      stream = file.createReadStream();
-    } else if (file.file) {
-      stream = file.file;
+    const tmpPath = path.resolve(os.tmpdir(), `temp_${filename}_${crypto.randomBytes(6).toString('hex')}`);
+    const writeStream = fs.createWriteStream(tmpPath);
+    let fileSize = 0;
+    if (file.file) {
+      file.file.on('data', (chunk) => {
+        hash.update(chunk); // 更新哈希
+        writeStream.write(chunk); // 写入文件
+        fileSize += chunk.length; // 更新文件大小
+      });
+
+      await new Promise((resolve, reject) => {
+        file.file.on('end', () => {
+          writeStream.end(); // 关闭写入流
+          resolve();
+        });
+        file.file.on('error', reject);
+      });
+    } else if (file.toBuffer) {
+      const buffer = await file.toBuffer();
+      hash.update(buffer);
+      writeStream.write(buffer);
+      fileSize = buffer.byteLength;
     } else {
-      throw new Error('无效的文件格式');
+      throw new Error('文件类型不支持');
     }
-    for await (const chunk of stream) {
-      hash.update(chunk);
-      buffer = Buffer.concat([buffer, chunk]);
-    }
+
     const digest = hash.digest('hex');
 
     let storageType;
     const ossServices = options.ossAdapter();
     if (typeof ossServices.uploadFile === 'function') {
       // 使用流上传到OSS
-      const uploadStream = file.createReadStream ? file.createReadStream() : Readable.from(buffer);
-      await ossServices.uploadFileStream({ stream: uploadStream, filename: `${digest}${extension}` });
+      const readStream = fs.createReadStream(tmpPath);
+      await ossServices.uploadFileStream({ stream: readStream, filename: `${digest}${extension}` });
       storageType = 'oss';
     } else {
       // 使用流写入本地文件
       const filepath = path.resolve(options.root, `${digest}${extension}`);
       const writeStream = fs.createWriteStream(filepath);
-      const readStream = file.createReadStream ? file.createReadStream() : Readable.from(buffer);
+      const readStream = fs.createReadStream(tmpPath);
       await new Promise((resolve, reject) => {
         readStream.pipe(writeStream)
           .on('finish', resolve)
@@ -47,6 +59,9 @@ module.exports = fp(async (fastify, options) => {
       });
       storageType = 'local';
     }
+
+    //清楚临时文件
+    await fs.remove(tmpPath);
 
     const outputFile = await (async create => {
       if (!id) {
@@ -60,7 +75,7 @@ module.exports = fp(async (fastify, options) => {
       file.encoding = encoding;
       file.mimetype = mimetype;
       file.hash = digest;
-      file.size = buffer.byteLength;
+      file.size = fileSize;
       file.storageType = storageType;
       await file.save();
       return file;
@@ -70,7 +85,7 @@ module.exports = fp(async (fastify, options) => {
       encoding,
       mimetype,
       hash: digest,
-      size: buffer.byteLength,
+      size: fileSize,
       storageType
     }));
     return Object.assign({}, outputFile.get({ plain: true }), { id: outputFile.uuid });
@@ -81,21 +96,11 @@ module.exports = fp(async (fastify, options) => {
     if (!response.ok) {
       throw new Error('下载文件失败');
     }
-    const chunks = [];
-    for await (const chunk of response.body) {
-      chunks.push(chunk);
-    }
-    const buffer = Buffer.concat(chunks);
     const tempFile = {
       filename: path.basename(url).split('?')[0],
       mimetype: response.headers.get('content-type'),
       encoding: 'binary',
-      createReadStream: () => {
-        const readable = new require('stream').Readable();
-        readable.push(buffer);
-        readable.push(null);
-        return readable;
-      }
+      file: response.body
     };
     return await uploadToFileSystem({ id, file: tempFile, namespace });
   };
