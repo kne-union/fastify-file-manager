@@ -219,8 +219,83 @@ module.exports = fp(async (fastify, options) => {
     await file.save();
   };
 
+  const getFileBlob = async ({ id }) => {
+    const file = await models.fileRecord.findOne({
+      where: { uuid: id }
+    });
+    if (!file) {
+      throw new Error('文件不存在');
+    }
+
+    const extension = path.extname(file.filename);
+    const targetFileName = `${file.hash}${extension}`;
+    const ossServices = options.ossAdapter();
+
+    let buffer;
+    if (file.storageType === 'oss') {
+      if (typeof ossServices.downloadFile !== 'function') {
+        throw new Error('ossAdapter未正确配置无法读取oss类型存储文件');
+      }
+      buffer = await ossServices.downloadFile({ filename: targetFileName });
+    } else {
+      const filePath = path.resolve(options.root, targetFileName);
+      if (!(await fs.exists(filePath))) {
+        throw new NotFound();
+      }
+      buffer = await fs.readFile(filePath);
+    }
+
+    return Object.assign({}, file.get({ plain: true }), {
+      id: file.uuid, buffer
+    });
+  };
+
+  const getFileStream = async ({ id }) => {
+    const file = await models.fileRecord.findOne({
+      where: { uuid: id }
+    });
+    if (!file) {
+      throw new Error('文件不存在');
+    }
+
+    const extension = path.extname(file.filename);
+    const targetFileName = `${file.hash}${extension}`;
+    const ossServices = options.ossAdapter();
+
+    if (file.storageType === 'oss') {
+      if (typeof ossServices.getFileStream !== 'function') {
+        throw new Error('ossAdapter未正确配置无法读取oss类型存储文件');
+      }
+      return await ossServices.getFileStream({ filename: targetFileName });
+    } else {
+      const filePath = path.resolve(options.root, targetFileName);
+      if (!(await fs.exists(filePath))) {
+        throw new NotFound();
+      }
+      return fs.createReadStream(filePath);
+    }
+  };
+
   Object.assign(services, {
-    uploadToFileSystem, uploadFromUrl, getFileUrl, getFileInfo, getFileList, deleteFiles, renameFile, // 兼容之前api，后面可能会删掉
-    fileRecord: { uploadToFileSystem, uploadFromUrl, getFileUrl, getFileInfo, getFileList, deleteFiles, renameFile }
+    uploadToFileSystem,
+    uploadFromUrl,
+    getFileUrl,
+    getFileInfo,
+    getFileList,
+    deleteFiles,
+    renameFile,
+    getFileBlob,
+    getFileStream, // 兼容之前api，后面可能会删掉
+    fileRecord: {
+      uploadToFileSystem,
+      uploadFromUrl,
+      getFileUrl,
+      getFileInfo,
+      getFileList,
+      deleteFiles,
+      renameFile,
+      getFileBlob,
+      getFileStream
+    }
   });
 });
