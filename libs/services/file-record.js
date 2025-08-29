@@ -276,6 +276,12 @@ module.exports = fp(async (fastify, options) => {
     }
   };
 
+  const getFileInstance = async ({ id, uuid }) => {
+    return await models.fileRecord.findOne({
+      where: { uuid: uuid || id }
+    });
+  };
+
   Object.assign(services, {
     uploadToFileSystem,
     uploadFromUrl,
@@ -286,6 +292,7 @@ module.exports = fp(async (fastify, options) => {
     renameFile,
     getFileBlob,
     getFileStream, // 兼容之前api，后面可能会删掉
+    getFileInstance,
     fileRecord: {
       uploadToFileSystem,
       uploadFromUrl,
@@ -295,7 +302,8 @@ module.exports = fp(async (fastify, options) => {
       deleteFiles,
       renameFile,
       getFileBlob,
-      getFileStream
+      getFileStream,
+      getFileInstance
     }
   });
 });
