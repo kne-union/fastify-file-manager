@@ -4,11 +4,23 @@ const crypto = require('node:crypto');
 const path = require('node:path');
 const { NotFound } = require('http-errors');
 const os = require('node:os');
-const { Readable } = require('stream');
+const { Readable } = require('node:stream');
 
 module.exports = fp(async (fastify, options) => {
   const { models, services } = fastify.fileManager;
   const { Op } = fastify.sequelize.Sequelize;
+
+  const detail = async ({ id, uuid }) => {
+    const file = await models.fileRecord.findOne({
+      where: { uuid: String(id || uuid).split('?')[0] }
+    });
+
+    if (!file) {
+      throw new Error('文件不存在');
+    }
+
+    return file;
+  };
   const uploadToFileSystem = async ({ id, file, namespace }) => {
     const { filename, encoding, mimetype } = file;
     const hash = crypto.createHash('md5');
@@ -68,10 +80,7 @@ module.exports = fp(async (fastify, options) => {
       if (!id) {
         return await create();
       }
-      const file = await models.fileRecord.findOne({ where: { uuid: id } });
-      if (!file) {
-        throw new Error('原文件不存在');
-      }
+      const file = await detail({ id });
       file.filename = filename;
       file.encoding = encoding;
       file.mimetype = mimetype;
@@ -123,12 +132,7 @@ module.exports = fp(async (fastify, options) => {
   };
 
   const getFileUrl = async ({ id, namespace }) => {
-    const file = await models.fileRecord.findOne({
-      where: { uuid: id }
-    });
-    if (!file) {
-      throw new Error('文件不存在');
-    }
+    const file = await detail({ id });
     const extension = path.extname(file.filename);
     const ossServices = options.ossAdapter();
     if (file.storageType === 'oss' && typeof ossServices.getFileLink !== 'function') {
@@ -145,12 +149,7 @@ module.exports = fp(async (fastify, options) => {
   };
 
   const getFileInfo = async ({ id }) => {
-    const file = await models.fileRecord.findOne({
-      where: { uuid: id }
-    });
-    if (!file) {
-      throw new Error('文件不存在');
-    }
+    const file = await detail({ id });
     const extension = path.extname(file.filename);
     const targetFileName = `${file.hash}${extension}`;
     const ossServices = options.ossAdapter();
@@ -202,27 +201,20 @@ module.exports = fp(async (fastify, options) => {
     await models.fileRecord.destroy({
       where: {
         uuid: {
-          [Op.in]: ids
+          [Op.in]: ids.map((str) => str.split('?')[0])
         }
       }
     });
   };
 
   const renameFile = async ({ id, filename }) => {
-    const file = await models.fileRecord.findOne({
-      where: { uuid: id }
-    });
-    if (!file) {
-      throw new Error('文件不存在');
-    }
+    const file = await detail({ id });
     file.filename = filename;
     await file.save();
   };
 
   const getFileBlob = async ({ id }) => {
-    const file = await models.fileRecord.findOne({
-      where: { uuid: id }
-    });
+    const file = await detail({ id });
     if (!file) {
       throw new Error('文件不存在');
     }
@@ -251,12 +243,7 @@ module.exports = fp(async (fastify, options) => {
   };
 
   const getFileStream = async ({ id }) => {
-    const file = await models.fileRecord.findOne({
-      where: { uuid: id }
-    });
-    if (!file) {
-      throw new Error('文件不存在');
-    }
+    const file = await detail({ id });
 
     const extension = path.extname(file.filename);
     const targetFileName = `${file.hash}${extension}`;
@@ -277,9 +264,7 @@ module.exports = fp(async (fastify, options) => {
   };
 
   const getFileInstance = async ({ id, uuid }) => {
-    return await models.fileRecord.findOne({
-      where: { uuid: uuid || id }
-    });
+    return detail({ id, uuid });
   };
 
   Object.assign(services, {
