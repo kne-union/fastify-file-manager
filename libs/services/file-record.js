@@ -79,7 +79,7 @@ module.exports = fp(async (fastify, options) => {
       storageType = 'local';
     }
 
-    //清楚临时文件
+    //清除临时文件
     await fs.remove(tmpPath);
 
     const outputFile = await (async create => {
@@ -95,17 +95,9 @@ module.exports = fp(async (fastify, options) => {
       file.storageType = storageType;
       await file.save();
       return file;
-    })(() =>
-      models.fileRecord.create({
-        filename,
-        namespace: namespace || options.namespace,
-        encoding,
-        mimetype,
-        hash: digest,
-        size: fileSize,
-        storageType
-      })
-    );
+    })(() => models.fileRecord.create({
+      filename, namespace: namespace || options.namespace, encoding, mimetype, hash: digest, size: fileSize, storageType
+    }));
     return Object.assign({}, outputFile.get({ plain: true }), { id: outputFile.uuid });
   };
 
@@ -135,12 +127,28 @@ module.exports = fp(async (fastify, options) => {
         nodeStream.emit('error', err);
       }
     };
-    readChunk();
+    readChunk().catch(err => {
+      throw err;
+    });
+
+    let filename = path.basename(url).split('?')[0];
+
+    const contentDisposition = response.headers.get('content-disposition');
+
+    if (contentDisposition) {
+      const filenameMatch = contentDisposition.match(/filename="?(.+)"?/i);
+      if (filenameMatch && filenameMatch[1]) {
+        filename = filenameMatch[1];
+      }
+    }
+
+    const searchParams = new URLSearchParams(url.split('?')[1]);
+    if (searchParams.get('filename')) {
+      filename = searchParams.get('filename');
+    }
+
     const tempFile = {
-      filename: path.basename(url).split('?')[0],
-      mimetype: response.headers.get('content-type'),
-      encoding: 'binary',
-      file: nodeStream
+      filename, mimetype: response.headers.get('content-type'), encoding: 'binary', file: nodeStream
     };
     return await uploadToFileSystem({ id, file: tempFile, namespace });
   };
@@ -175,9 +183,7 @@ module.exports = fp(async (fastify, options) => {
       targetFile = await ossServices.downloadFile({ filename: targetFileName });
     }
     return Object.assign({}, file.get({ pain: true }), {
-      id: file.uuid,
-      filePath: targetFileName,
-      targetFile
+      id: file.uuid, filePath: targetFileName, targetFile
     });
   };
 
@@ -206,13 +212,10 @@ module.exports = fp(async (fastify, options) => {
     }
 
     const { count, rows } = await models.fileRecord.findAndCountAll({
-      where: queryFilter,
-      offset: perPage * (currentPage - 1),
-      limit: perPage
+      where: queryFilter, offset: perPage * (currentPage - 1), limit: perPage
     });
     return {
-      pageData: rows.map(item => Object.assign({}, item.get({ plain: true }), { id: item.uuid })),
-      totalCount: count
+      pageData: rows.map(item => Object.assign({}, item.get({ plain: true }), { id: item.uuid })), totalCount: count
     };
   };
 
@@ -257,30 +260,28 @@ module.exports = fp(async (fastify, options) => {
     }
 
     return Object.assign({}, file.get({ plain: true }), {
-      id: file.uuid,
-      buffer
+      id: file.uuid, buffer
     });
   };
 
-  const getFileStream = async ({ id }) => {
-    const file = await detail({ id });
-
+  const getFileReadStream = file => {
     const extension = path.extname(file.filename);
     const targetFileName = `${file.hash}${extension}`;
     const ossServices = options.ossAdapter();
-
     if (file.storageType === 'oss') {
       if (typeof ossServices.getFileStream !== 'function') {
         throw new Error('ossAdapter未正确配置无法读取oss类型存储文件');
       }
-      return await ossServices.getFileStream({ filename: targetFileName });
+      return ossServices.getFileStream({ filename: targetFileName });
     } else {
       const filePath = path.resolve(options.root, targetFileName);
-      if (!(await fs.exists(filePath))) {
-        throw new NotFound();
-      }
       return fs.createReadStream(filePath);
     }
+  };
+
+  const getFileStream = async ({ id }) => {
+    const file = await detail({ id });
+    return getFileReadStream(file);
   };
 
   const getCompressFileStream = async ({ ids, type = 'zip' }) => {
@@ -291,14 +292,30 @@ module.exports = fp(async (fastify, options) => {
         }
       }
     });
-    const compressStream = new compressing[type].Stream();
+    const tmpPath = path.resolve(os.tmpdir(), `temp_compress_file_${crypto.randomBytes(6).toString('hex')}`);
+    await fs.mkdir(tmpPath);
+    const files = [];
     for (const file of fileList) {
-      const fileStream = await getFileStream({ id: file.uuid });
-      compressStream.addEntry(fileStream, {
-        name: file.filename,
-        relativePath: file.filename
+      const filepath = path.resolve(tmpPath, file.filename);
+      const writeStream = fs.createWriteStream(filepath);
+      const fileStream = getFileReadStream(file);
+      fileStream.pipe(writeStream);
+      await new Promise((resolve, reject) => {
+        writeStream.on('finish', resolve);
+        writeStream.on('error', reject);
       });
+      files.push(filepath);
     }
+    const compressStream = new compressing[type].Stream();
+    files.forEach(filepath => {
+      compressStream.addEntry(path.resolve(filepath));
+    });
+    compressStream.on('error', () => {
+      fs.remove(tmpPath);
+    });
+    compressStream.on('end', () => {
+      fs.remove(tmpPath);
+    });
     return compressStream;
   };
 
@@ -307,7 +324,7 @@ module.exports = fp(async (fastify, options) => {
     const chunks = [];
     return new Promise((resolve, reject) => {
       compressStream.on('data', chunk => chunks.push(chunk));
-      compressStream.on('end', () => resolve(new Blob(chunks)));
+      compressStream.on('end', () => resolve(Buffer.concat(chunks)));
       compressStream.on('error', reject);
     });
   };
@@ -326,10 +343,10 @@ module.exports = fp(async (fastify, options) => {
     renameFile,
     getFileBlob,
     getFileStream,
+    getFileReadStream,
     getCompressFileStream,
     getCompressFileBlob,
-    getFileInstance,
-    // 兼容之前api，后面可能会删掉
+    getFileInstance, // 兼容之前api，后面可能会删掉
     fileRecord: {
       uploadToFileSystem,
       uploadFromUrl,
@@ -340,6 +357,7 @@ module.exports = fp(async (fastify, options) => {
       renameFile,
       getFileBlob,
       getFileStream,
+      getFileReadStream,
       getCompressFileStream,
       getCompressFileBlob,
       getFileInstance
