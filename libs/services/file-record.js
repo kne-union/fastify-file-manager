@@ -5,6 +5,7 @@ const path = require('node:path');
 const { NotFound } = require('http-errors');
 const os = require('node:os');
 const { Readable } = require('node:stream');
+const compressing = require('compressing');
 
 module.exports = fp(async (fastify, options) => {
   const { models, services } = fastify.fileManager;
@@ -29,7 +30,7 @@ module.exports = fp(async (fastify, options) => {
     const writeStream = fs.createWriteStream(tmpPath);
     let fileSize = 0;
     if (file.file) {
-      file.file.on('data', (chunk) => {
+      file.file.on('data', chunk => {
         hash.update(chunk); // 更新哈希
         writeStream.write(chunk); // 写入文件
         fileSize += chunk.length; // 更新文件大小
@@ -73,9 +74,7 @@ module.exports = fp(async (fastify, options) => {
       const writeStream = fs.createWriteStream(filepath);
       const readStream = fs.createReadStream(tmpPath);
       await new Promise((resolve, reject) => {
-        readStream.pipe(writeStream)
-          .on('finish', resolve)
-          .on('error', reject);
+        readStream.pipe(writeStream).on('finish', resolve).on('error', reject);
       });
       storageType = 'local';
     }
@@ -96,9 +95,17 @@ module.exports = fp(async (fastify, options) => {
       file.storageType = storageType;
       await file.save();
       return file;
-    })(() => models.fileRecord.create({
-      filename, namespace: namespace || options.namespace, encoding, mimetype, hash: digest, size: fileSize, storageType
-    }));
+    })(() =>
+      models.fileRecord.create({
+        filename,
+        namespace: namespace || options.namespace,
+        encoding,
+        mimetype,
+        hash: digest,
+        size: fileSize,
+        storageType
+      })
+    );
     return Object.assign({}, outputFile.get({ plain: true }), { id: outputFile.uuid });
   };
 
@@ -168,7 +175,9 @@ module.exports = fp(async (fastify, options) => {
       targetFile = await ossServices.downloadFile({ filename: targetFileName });
     }
     return Object.assign({}, file.get({ pain: true }), {
-      id: file.uuid, filePath: targetFileName, targetFile
+      id: file.uuid,
+      filePath: targetFileName,
+      targetFile
     });
   };
 
@@ -197,10 +206,13 @@ module.exports = fp(async (fastify, options) => {
     }
 
     const { count, rows } = await models.fileRecord.findAndCountAll({
-      where: queryFilter, offset: perPage * (currentPage - 1), limit: perPage
+      where: queryFilter,
+      offset: perPage * (currentPage - 1),
+      limit: perPage
     });
     return {
-      pageData: rows.map(item => Object.assign({}, item.get({ plain: true }), { id: item.uuid })), totalCount: count
+      pageData: rows.map(item => Object.assign({}, item.get({ plain: true }), { id: item.uuid })),
+      totalCount: count
     };
   };
 
@@ -208,7 +220,7 @@ module.exports = fp(async (fastify, options) => {
     await models.fileRecord.destroy({
       where: {
         uuid: {
-          [Op.in]: ids.map((str) => str.split('?')[0])
+          [Op.in]: ids.map(str => str.split('?')[0])
         }
       }
     });
@@ -245,7 +257,8 @@ module.exports = fp(async (fastify, options) => {
     }
 
     return Object.assign({}, file.get({ plain: true }), {
-      id: file.uuid, buffer
+      id: file.uuid,
+      buffer
     });
   };
 
@@ -270,6 +283,35 @@ module.exports = fp(async (fastify, options) => {
     }
   };
 
+  const getCompressFileStream = async ({ ids, type = 'zip' }) => {
+    const fileList = await models.fileRecord.findAll({
+      where: {
+        uuid: {
+          [Op.in]: ids.map(str => str.split('?')[0])
+        }
+      }
+    });
+    const compressStream = new compressing[type].Stream();
+    for (const file of fileList) {
+      const fileStream = await getFileStream({ id: file.uuid });
+      compressStream.addEntry(fileStream, {
+        name: file.filename,
+        relativePath: file.filename
+      });
+    }
+    return compressStream;
+  };
+
+  const getCompressFileBlob = async (...args) => {
+    const compressStream = await getCompressFileStream(...args);
+    const chunks = [];
+    return new Promise((resolve, reject) => {
+      compressStream.on('data', chunk => chunks.push(chunk));
+      compressStream.on('end', () => resolve(new Blob(chunks)));
+      compressStream.on('error', reject);
+    });
+  };
+
   const getFileInstance = async ({ id, uuid }) => {
     return detail({ id, uuid });
   };
@@ -283,8 +325,11 @@ module.exports = fp(async (fastify, options) => {
     deleteFiles,
     renameFile,
     getFileBlob,
-    getFileStream, // 兼容之前api，后面可能会删掉
+    getFileStream,
+    getCompressFileStream,
+    getCompressFileBlob,
     getFileInstance,
+    // 兼容之前api，后面可能会删掉
     fileRecord: {
       uploadToFileSystem,
       uploadFromUrl,
@@ -295,6 +340,8 @@ module.exports = fp(async (fastify, options) => {
       renameFile,
       getFileBlob,
       getFileStream,
+      getCompressFileStream,
+      getCompressFileBlob,
       getFileInstance
     }
   });
