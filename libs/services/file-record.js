@@ -298,7 +298,7 @@ module.exports = fp(async (fastify, options) => {
     for (const file of fileList) {
       const filepath = path.resolve(tmpPath, file.filename);
       const writeStream = fs.createWriteStream(filepath);
-      const fileStream = getFileReadStream(file);
+      const fileStream = await getFileReadStream(file);
       fileStream.pipe(writeStream);
       await new Promise((resolve, reject) => {
         writeStream.on('finish', resolve);
