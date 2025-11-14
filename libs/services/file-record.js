@@ -51,6 +51,13 @@ module.exports = fp(async (fastify, options) => {
       throw new Error('文件类型不支持');
     }
 
+    await new Promise((resolve, reject) => {
+      writeStream.on('finish', () => {
+        resolve();
+      });
+      writeStream.on('error', reject);
+    });
+
     const digest = hash.digest('hex');
 
     let storageType;
