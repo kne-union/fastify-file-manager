@@ -48,6 +48,7 @@ module.exports = fp(async (fastify, options) => {
       hash.update(buffer);
       writeStream.write(buffer);
       fileSize = buffer.byteLength;
+      writeStream.end();
     } else {
       throw new Error('文件类型不支持');
     }
