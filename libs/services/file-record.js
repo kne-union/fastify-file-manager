@@ -230,28 +230,28 @@ module.exports = fp(async (fastify, options) => {
     }
 
     if (filter?.id) {
-      queryFilter.uuid = {
-        [Op.like]: `%${filter.id}%`
-      };
+      queryFilter.uuid = filter.id;
     }
 
-    if (filter?.createdAt) {
-      if (filter.createdAt.startTime && filter.createdAt.endTime) {
-        queryFilter.createdAt = {
-          [Op.between]: [filter.createdAt.startTime, filter.createdAt.endTime]
-        };
+    ['createdAt', 'updatedAt'].forEach(name => {
+      if (filter?.[name]) {
+        if (filter[name].startTime && filter[name].endTime) {
+          queryFilter[name] = {
+            [Op.between]: [filter[name].startTime, filter[name].endTime]
+          };
+        }
+        if (filter[name].startTime && !filter[name].endTime) {
+          queryFilter[name] = {
+            [Op.gte]: filter[name].startTime
+          };
+        }
+        if (!filter[name].startTime && filter[name].endTime) {
+          queryFilter[name] = {
+            [Op.lte]: filter[name].endTime
+          };
+        }
       }
-      if (filter.createdAt.startTime && !filter.createdAt.endTime) {
-        queryFilter.createdAt = {
-          [Op.gte]: filter.createdAt.startTime
-        };
-      }
-      if (!filter.createdAt.startTime && filter.createdAt.endTime) {
-        queryFilter.createdAt = {
-          [Op.lte]: filter.createdAt.endTime
-        };
-      }
-    }
+    });
 
     const { count, rows } = await models.fileRecord.findAndCountAll({
       where: queryFilter,
