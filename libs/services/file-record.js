@@ -205,7 +205,7 @@ module.exports = fp(async (fastify, options) => {
     });
   };
 
-  const getFileList = async ({ filter, currentPage, perPage }) => {
+  const getFileList = async ({ filter = {}, currentPage, perPage }) => {
     // namespace: namespace || options.namespace
     const queryFilter = {};
 
@@ -227,6 +227,32 @@ module.exports = fp(async (fastify, options) => {
       queryFilter.namespace = {
         [Op.like]: `%${filter.namespace}%`
       };
+    }
+
+    if (filter?.id) {
+      queryFilter.uuid = filter.id;
+    }
+
+    if (filter?.hash) {
+      queryFilter.hash = filter.hash;
+    }
+
+    if (filter?.createdAt && filter?.createdAt.length === 2) {
+      if (filter.createdAt[0] && filter.createdAt[1]) {
+        queryFilter.createdAt = {
+          [Op.between]: [filter.createdAt[0], filter.createdAt[1]]
+        };
+      }
+      if (filter.createdAt[0] && !filter.createdAt[1]) {
+        queryFilter.createdAt = {
+          [Op.gte]: filter.createdAt[0]
+        };
+      }
+      if (!filter.createdAt[0] && filter.createdAt[1]) {
+        queryFilter.createdAt = {
+          [Op.lte]: filter.createdAt[1]
+        };
+      }
     }
 
     const { count, rows } = await models.fileRecord.findAndCountAll({
