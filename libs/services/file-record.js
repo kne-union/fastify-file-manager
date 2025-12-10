@@ -96,13 +96,21 @@ module.exports = fp(async (fastify, options) => {
       file.storageType = storageType;
       await file.save();
       return file;
-    })(() => models.fileRecord.create({
-      filename, namespace: namespace || options.namespace, encoding, mimetype, hash: digest, size: fileSize, storageType
-    }));
+    })(() =>
+      models.fileRecord.create({
+        filename,
+        namespace: namespace || options.namespace,
+        encoding,
+        mimetype,
+        hash: digest,
+        size: fileSize,
+        storageType
+      })
+    );
     return Object.assign({}, outputFile.get({ plain: true }), { id: outputFile.uuid });
   };
 
-  const uploadFromUrl = async ({ id, url, namespace }) => {
+  const uploadFromUrl = async ({ id, url, filename: originFilename, namespace }) => {
     const response = await fetch(url);
     if (!response.ok) {
       throw new Error('下载文件失败');
@@ -143,13 +151,20 @@ module.exports = fp(async (fastify, options) => {
       }
     }
 
+    if (originFilename) {
+      filename = originFilename;
+    }
+
     const searchParams = new URLSearchParams(url.split('?')[1]);
     if (searchParams.get('filename')) {
       filename = searchParams.get('filename');
     }
 
     const tempFile = {
-      filename, mimetype: response.headers.get('content-type'), encoding: 'binary', file: nodeStream
+      filename,
+      mimetype: response.headers.get('content-type'),
+      encoding: 'binary',
+      file: nodeStream
     };
     return await uploadToFileSystem({ id, file: tempFile, namespace });
   };
@@ -184,7 +199,9 @@ module.exports = fp(async (fastify, options) => {
       targetFile = await ossServices.downloadFile({ filename: targetFileName });
     }
     return Object.assign({}, file.get({ pain: true }), {
-      id: file.uuid, filePath: targetFileName, targetFile
+      id: file.uuid,
+      filePath: targetFileName,
+      targetFile
     });
   };
 
@@ -213,10 +230,14 @@ module.exports = fp(async (fastify, options) => {
     }
 
     const { count, rows } = await models.fileRecord.findAndCountAll({
-      where: queryFilter, offset: perPage * (currentPage - 1), limit: perPage
+      where: queryFilter,
+      offset: perPage * (currentPage - 1),
+      limit: perPage,
+      order: [['createdAt', 'desc']]
     });
     return {
-      pageData: rows.map(item => Object.assign({}, item.get({ plain: true }), { id: item.uuid })), totalCount: count
+      pageData: rows.map(item => Object.assign({}, item.get({ plain: true }), { id: item.uuid })),
+      totalCount: count
     };
   };
 
@@ -261,7 +282,8 @@ module.exports = fp(async (fastify, options) => {
     }
 
     return Object.assign({}, file.get({ plain: true }), {
-      id: file.uuid, buffer
+      id: file.uuid,
+      buffer
     });
   };
 
