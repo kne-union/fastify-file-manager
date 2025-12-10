@@ -230,27 +230,25 @@ module.exports = fp(async (fastify, options) => {
     }
 
     if (filter?.id) {
-      queryFilter.uuid = filter.id;
+      queryFilter.uuid = {
+        [Op.like]: `%${filter.id}%`
+      };
     }
 
-    if (filter?.hash) {
-      queryFilter.hash = filter.hash;
-    }
-
-    if (filter?.createdAt && filter?.createdAt.length === 2) {
-      if (filter.createdAt[0] && filter.createdAt[1]) {
+    if (filter?.createdAt) {
+      if (filter.createdAt.startTime && filter.createdAt.endTime) {
         queryFilter.createdAt = {
-          [Op.between]: [filter.createdAt[0], filter.createdAt[1]]
+          [Op.between]: [filter.createdAt.startTime, filter.createdAt.endTime]
         };
       }
-      if (filter.createdAt[0] && !filter.createdAt[1]) {
+      if (filter.createdAt.startTime && !filter.createdAt.endTime) {
         queryFilter.createdAt = {
-          [Op.gte]: filter.createdAt[0]
+          [Op.gte]: filter.createdAt.startTime
         };
       }
-      if (!filter.createdAt[0] && filter.createdAt[1]) {
+      if (!filter.createdAt.startTime && filter.createdAt.endTime) {
         queryFilter.createdAt = {
-          [Op.lte]: filter.createdAt[1]
+          [Op.lte]: filter.createdAt.endTime
         };
       }
     }
