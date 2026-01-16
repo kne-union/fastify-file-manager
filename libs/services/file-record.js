@@ -6,12 +6,13 @@ const { NotFound } = require('http-errors');
 const os = require('node:os');
 const { Readable } = require('node:stream');
 const compressing = require('compressing');
+const { glob } = require('glob');
 
 module.exports = fp(async (fastify, options) => {
   const { models, services } = fastify.fileManager;
   const { Op } = fastify.sequelize.Sequelize;
 
-  const detail = async ({ id, uuid }) => {
+  const detail = async ({ id, uuid, namespace }) => {
     const file = await models.fileRecord.findOne({
       where: { uuid: String(id || uuid).split('?')[0] }
     });
@@ -22,7 +23,7 @@ module.exports = fp(async (fastify, options) => {
 
     return file;
   };
-  const uploadToFileSystem = async ({ id, file, namespace }) => {
+  const uploadToFileSystem = async ({ id, file, namespace, options }) => {
     const { filename, encoding, mimetype } = file;
     const hash = crypto.createHash('md5');
     const extension = path.extname(filename);
@@ -94,6 +95,7 @@ module.exports = fp(async (fastify, options) => {
       file.hash = digest;
       file.size = fileSize;
       file.storageType = storageType;
+      file.options = options;
       await file.save();
       return file;
     })(() =>
@@ -104,13 +106,14 @@ module.exports = fp(async (fastify, options) => {
         mimetype,
         hash: digest,
         size: fileSize,
-        storageType
+        storageType,
+        options
       })
     );
     return Object.assign({}, outputFile.get({ plain: true }), { id: outputFile.uuid });
   };
 
-  const uploadFromUrl = async ({ id, url, filename: originFilename, namespace }) => {
+  const uploadFromUrl = async ({ id, url, filename: originFilename, namespace, options }) => {
     const response = await fetch(url);
     if (!response.ok) {
       throw new Error('下载文件失败');
@@ -166,11 +169,11 @@ module.exports = fp(async (fastify, options) => {
       encoding: 'binary',
       file: nodeStream
     };
-    return await uploadToFileSystem({ id, file: tempFile, namespace });
+    return await uploadToFileSystem({ id, file: tempFile, namespace, options });
   };
 
   const getFileUrl = async ({ id, namespace }) => {
-    const file = await detail({ id });
+    const file = await detail({ id, namespace });
     const extension = path.extname(file.filename);
     const ossServices = options.ossAdapter();
     if (file.storageType === 'oss' && typeof ossServices.getFileLink !== 'function') {
@@ -186,8 +189,8 @@ module.exports = fp(async (fastify, options) => {
     return `${options.prefix}/file/${file.hash}${extension}?filename=${file.filename}`;
   };
 
-  const getFileInfo = async ({ id }) => {
-    const file = await detail({ id });
+  const getFileInfo = async ({ id, namespace }) => {
+    const file = await detail({ id, namespace });
     const extension = path.extname(file.filename);
     const targetFileName = `${file.hash}${extension}`;
     const ossServices = options.ossAdapter();
@@ -205,8 +208,7 @@ module.exports = fp(async (fastify, options) => {
     });
   };
 
-  const getFileList = async ({ filter = {}, currentPage, perPage }) => {
-    // namespace: namespace || options.namespace
+  const getFileList = async ({ filter = {}, namespace, currentPage, perPage }) => {
     const queryFilter = {};
 
     if (filter?.filename) {
@@ -227,6 +229,9 @@ module.exports = fp(async (fastify, options) => {
       queryFilter.namespace = {
         [Op.like]: `%${filter.namespace}%`
       };
+    }
+    if (namespace) {
+      queryFilter.namespace = namespace;
     }
 
     if (filter?.id) {
@@ -281,8 +286,8 @@ module.exports = fp(async (fastify, options) => {
     await file.save();
   };
 
-  const getFileBlob = async ({ id }) => {
-    const file = await detail({ id });
+  const getFileBlob = async ({ id, namespace }) => {
+    const file = await detail({ id, namespace });
     if (!file) {
       throw new Error('文件不存在');
     }
@@ -376,6 +381,38 @@ module.exports = fp(async (fastify, options) => {
     });
   };
 
+  //文件解压缩
+  const uncompressFile = async ({ id, type = 'zip', namespace, globOptions = '**/*' }) => {
+    const file = await detail({ id });
+    const fileStream = await getFileReadStream(file);
+    const tmpPath = path.resolve(os.tmpdir(), `temp_${id}_${crypto.randomBytes(6).toString('hex')}`);
+    await compressing[type].uncompress(fileStream, tmpPath);
+    const files = await glob(globOptions, {
+      cwd: tmpPath
+    });
+    //将文件上传到文件系统
+    const fileList = await Promise.all(
+      files.map(async dir => {
+        const filepath = path.resolve(tmpPath, dir);
+        const filename = path.basename(dir);
+        const fileStream = fs.createReadStream(filepath);
+        const file = await uploadToFileSystem({
+          file: fileStream,
+          filename,
+          namespace
+        });
+        return {
+          dir,
+          file
+        };
+      })
+    );
+    //清除临时文件
+    await fs.remove(tmpPath);
+
+    return fileList;
+  };
+
   const getFileInstance = async ({ id, uuid }) => {
     return detail({ id, uuid });
   };
@@ -393,6 +430,7 @@ module.exports = fp(async (fastify, options) => {
     getFileReadStream,
     getCompressFileStream,
     getCompressFileBlob,
+    uncompressFile,
     getFileInstance, // 兼容之前api，后面可能会删掉
     fileRecord: {
       uploadToFileSystem,
@@ -407,6 +445,7 @@ module.exports = fp(async (fastify, options) => {
       getFileReadStream,
       getCompressFileStream,
       getCompressFileBlob,
+      uncompressFile,
       getFileInstance
     }
   });

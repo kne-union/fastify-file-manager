@@ -27,13 +27,21 @@ module.exports = ({ DataTypes }) => {
         type: DataTypes.STRING,
         allowNull: false,
         comment: '存储类型:local本地文件系统,oss远程oss存储'
+      },
+      options: {
+        type: DataTypes.JSONB,
+        defaultValue: {},
+        comment: '扩展字段'
       }
     },
     options: {
       indexes: [
         {
           unique: true,
-          fields: ['uuid', 'deleted_at']
+          fields: ['uuid'],
+          where: {
+            deleted_at: null
+          }
         },
         {
           fields: ['namespace']
