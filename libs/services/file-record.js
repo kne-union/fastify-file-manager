@@ -392,30 +392,31 @@ module.exports = fp(async (fastify, fastifyOptions) => {
       cwd: tmpPath,
       nodir: true
     });
+    console.log('---->1:', files);
     //将文件上传到文件系统
-    const fileList = await Promise.all(
-      files.map(async dir => {
-        const filepath = path.resolve(tmpPath, dir);
-        const filename = path.basename(dir);
-        const fileStream = fs.createReadStream(filepath);
-
-        const mimetype = MimeTypes.lookup(filepath) || 'application/octet-stream';
-        const file = await uploadToFileSystem({
-          file: {
-            filename,
-            mimetype,
-            encoding: 'binary',
-            file: fileStream
-          },
+    const fileList = [];
+    for (let dir of files) {
+      const filepath = path.resolve(tmpPath, dir);
+      const filename = path.basename(dir);
+      const fileStream = fs.createReadStream(filepath);
+      const mimetype = MimeTypes.lookup(filepath) || 'application/octet-stream';
+      console.log(filename, mimetype);
+      const file = await uploadToFileSystem({
+        file: {
           filename,
-          namespace
-        });
-        return {
-          dir,
-          file
-        };
-      })
-    );
+          mimetype,
+          encoding: 'binary',
+          file: fileStream
+        },
+        filename,
+        namespace
+      });
+      console.log('---->2:', dir, file);
+      fileList.push({
+        dir,
+        file
+      });
+    }
     fs.remove(tmpPath).catch(console.error);
     return fileList;
   };
