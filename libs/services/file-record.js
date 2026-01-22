@@ -7,8 +7,9 @@ const os = require('node:os');
 const { Readable } = require('node:stream');
 const compressing = require('compressing');
 const { glob } = require('glob');
+const MimeTypes = require('mime-types');
 
-module.exports = fp(async (fastify, options) => {
+module.exports = fp(async (fastify, fastifyOptions) => {
   const { models, services } = fastify.fileManager;
   const { Op } = fastify.sequelize.Sequelize;
 
@@ -64,7 +65,7 @@ module.exports = fp(async (fastify, options) => {
     const digest = hash.digest('hex');
 
     let storageType;
-    const ossServices = options.ossAdapter();
+    const ossServices = fastifyOptions.ossAdapter();
     if (typeof ossServices.uploadFile === 'function') {
       // 使用流上传到OSS
       const readStream = fs.createReadStream(tmpPath);
@@ -72,7 +73,7 @@ module.exports = fp(async (fastify, options) => {
       storageType = 'oss';
     } else {
       // 使用流写入本地文件
-      const filepath = path.resolve(options.root, `${digest}${extension}`);
+      const filepath = path.resolve(fastifyOptions.root, `${digest}${extension}`);
       const writeStream = fs.createWriteStream(filepath);
       const readStream = fs.createReadStream(tmpPath);
       await new Promise((resolve, reject) => {
@@ -101,7 +102,7 @@ module.exports = fp(async (fastify, options) => {
     })(() =>
       models.fileRecord.create({
         filename,
-        namespace: namespace || options.namespace,
+        namespace: namespace || fastifyOptions.namespace,
         encoding,
         mimetype,
         hash: digest,
@@ -175,7 +176,7 @@ module.exports = fp(async (fastify, options) => {
   const getFileUrl = async ({ id, namespace }) => {
     const file = await detail({ id, namespace });
     const extension = path.extname(file.filename);
-    const ossServices = options.ossAdapter();
+    const ossServices = fastifyOptions.ossAdapter();
     if (file.storageType === 'oss' && typeof ossServices.getFileLink !== 'function') {
       throw new Error('ossAdapter未正确配置无法读取oss类型存储文件');
     }
@@ -183,17 +184,17 @@ module.exports = fp(async (fastify, options) => {
       return await ossServices.getFileLink({ filename: `${file.hash}${extension}` });
     }
 
-    if (!(await fs.exists(`${options.root}/${file.hash}${extension}`))) {
+    if (!(await fs.exists(`${fastifyOptions.root}/${file.hash}${extension}`))) {
       throw new NotFound();
     }
-    return `${options.prefix}/file/${file.hash}${extension}?filename=${file.filename}`;
+    return `${fastifyOptions.prefix}/file/${file.hash}${extension}?filename=${file.filename}`;
   };
 
   const getFileInfo = async ({ id, namespace }) => {
     const file = await detail({ id, namespace });
     const extension = path.extname(file.filename);
     const targetFileName = `${file.hash}${extension}`;
-    const ossServices = options.ossAdapter();
+    const ossServices = fastifyOptions.ossAdapter();
     if (file.storageType === 'oss' && typeof ossServices.downloadFile !== 'function') {
       throw new Error('ossAdapter未正确配置无法读取oss类型存储文件');
     }
@@ -294,7 +295,7 @@ module.exports = fp(async (fastify, options) => {
 
     const extension = path.extname(file.filename);
     const targetFileName = `${file.hash}${extension}`;
-    const ossServices = options.ossAdapter();
+    const ossServices = fastifyOptions.ossAdapter();
 
     let buffer;
     if (file.storageType === 'oss') {
@@ -303,7 +304,7 @@ module.exports = fp(async (fastify, options) => {
       }
       buffer = await ossServices.downloadFile({ filename: targetFileName });
     } else {
-      const filePath = path.resolve(options.root, targetFileName);
+      const filePath = path.resolve(fastifyOptions.root, targetFileName);
       if (!(await fs.exists(filePath))) {
         throw new NotFound();
       }
@@ -319,14 +320,14 @@ module.exports = fp(async (fastify, options) => {
   const getFileReadStream = file => {
     const extension = path.extname(file.filename);
     const targetFileName = `${file.hash}${extension}`;
-    const ossServices = options.ossAdapter();
+    const ossServices = fastifyOptions.ossAdapter();
     if (file.storageType === 'oss') {
       if (typeof ossServices.getFileStream !== 'function') {
         throw new Error('ossAdapter未正确配置无法读取oss类型存储文件');
       }
       return ossServices.getFileStream({ filename: targetFileName });
     } else {
-      const filePath = path.resolve(options.root, targetFileName);
+      const filePath = path.resolve(fastifyOptions.root, targetFileName);
       return fs.createReadStream(filePath);
     }
   };
@@ -388,7 +389,8 @@ module.exports = fp(async (fastify, options) => {
     const tmpPath = path.resolve(os.tmpdir(), `temp_${id}_${crypto.randomBytes(6).toString('hex')}`);
     await compressing[type].uncompress(fileStream, tmpPath);
     const files = await glob(globOptions, {
-      cwd: tmpPath
+      cwd: tmpPath,
+      nodir: true
     });
     //将文件上传到文件系统
     const fileList = await Promise.all(
@@ -396,8 +398,15 @@ module.exports = fp(async (fastify, options) => {
         const filepath = path.resolve(tmpPath, dir);
         const filename = path.basename(dir);
         const fileStream = fs.createReadStream(filepath);
+
+        const mimetype = MimeTypes.lookup(filepath) || 'application/octet-stream';
         const file = await uploadToFileSystem({
-          file: fileStream,
+          file: {
+            filename,
+            mimetype,
+            encoding: 'binary',
+            file: fileStream
+          },
           filename,
           namespace
         });
