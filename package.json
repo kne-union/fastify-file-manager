@@ -1,6 +1,6 @@
 {
   "name": "@kne/fastify-file-manager",
-  "version": "3.0.0-alpha.0",
+  "version": "3.0.0-alpha.1",
   "description": "用于管理静态文件上传查看等",
   "main": "index.js",
   "scripts": {
@@ -52,6 +52,7 @@
     "compressing": "^2.0.0",
     "fs-extra": "^11.2.0",
     "glob": "^13.0.0",
-    "http-errors": "^2.0.0"
+    "http-errors": "^2.0.0",
+    "mime-types": "^3.0.2"
   }
 }
