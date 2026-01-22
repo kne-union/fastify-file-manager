@@ -29,38 +29,57 @@ module.exports = fp(async (fastify, fastifyOptions) => {
     const hash = crypto.createHash('md5');
     const extension = path.extname(filename);
     const tmpPath = path.resolve(os.tmpdir(), `temp_${filename}_${crypto.randomBytes(6).toString('hex')}`);
-    const writeStream = fs.createWriteStream(tmpPath);
     let fileSize = 0;
     if (file.file) {
-      file.file.on('data', chunk => {
-        hash.update(chunk); // 更新哈希
-        writeStream.write(chunk); // 写入文件
-        fileSize += chunk.length; // 更新文件大小
-      });
+      const writeStream = fs.createWriteStream(tmpPath);
 
       await new Promise((resolve, reject) => {
+        const cleanup = () => {
+          file.file.removeAllListeners();
+          writeStream.removeAllListeners();
+        };
+
+        const handleError = err => {
+          cleanup();
+          reject(err);
+        };
+
+        writeStream.on('error', handleError);
+        writeStream.on('drain', () => {
+          file.file.resume();
+        });
+
+        file.file.on('data', chunk => {
+          hash.update(chunk);
+          const canWrite = writeStream.write(chunk);
+          if (!canWrite) {
+            file.file.pause();
+          }
+          fileSize += chunk.length;
+        });
+
         file.file.on('end', () => {
-          writeStream.end(); // 关闭写入流
+          writeStream.end();
+        });
+
+        file.file.on('error', handleError);
+        writeStream.on('finish', () => {
+          cleanup();
           resolve();
         });
-        file.file.on('error', reject);
       });
-    } else if (file.toBuffer) {
-      const buffer = await file.toBuffer();
+    } else if (file.toBuffer || file.buffer) {
+      const buffer = file.toBuffer ? await file.toBuffer() : file.buffer;
       hash.update(buffer);
-      writeStream.write(buffer);
+      await fs.writeFile(tmpPath, buffer);
       fileSize = buffer.byteLength;
-      writeStream.end();
+    } else if (file.filepath) {
+      await fs.copy(file.filepath, tmpPath);
+      const stat = await fs.stat(tmpPath);
+      fileSize = stat.size;
     } else {
       throw new Error('文件类型不支持');
     }
-
-    await new Promise((resolve, reject) => {
-      writeStream.on('finish', () => {
-        resolve();
-      });
-      writeStream.on('error', reject);
-    });
 
     const digest = hash.digest('hex');
 
@@ -99,18 +118,16 @@ module.exports = fp(async (fastify, fastifyOptions) => {
       file.options = options;
       await file.save();
       return file;
-    })(() =>
-      models.fileRecord.create({
-        filename,
-        namespace: namespace || fastifyOptions.namespace,
-        encoding,
-        mimetype,
-        hash: digest,
-        size: fileSize,
-        storageType,
-        options
-      })
-    );
+    })(() => models.fileRecord.create({
+      filename,
+      namespace: namespace || fastifyOptions.namespace,
+      encoding,
+      mimetype,
+      hash: digest,
+      size: fileSize,
+      storageType,
+      options
+    }));
     return Object.assign({}, outputFile.get({ plain: true }), { id: outputFile.uuid });
   };
 
@@ -165,10 +182,7 @@ module.exports = fp(async (fastify, fastifyOptions) => {
     }
 
     const tempFile = {
-      filename,
-      mimetype: response.headers.get('content-type'),
-      encoding: 'binary',
-      file: nodeStream
+      filename, mimetype: response.headers.get('content-type'), encoding: 'binary', file: nodeStream
     };
     return await uploadToFileSystem({ id, file: tempFile, namespace, options });
   };
@@ -203,9 +217,7 @@ module.exports = fp(async (fastify, fastifyOptions) => {
       targetFile = await ossServices.downloadFile({ filename: targetFileName });
     }
     return Object.assign({}, file.get({ pain: true }), {
-      id: file.uuid,
-      filePath: targetFileName,
-      targetFile
+      id: file.uuid, filePath: targetFileName, targetFile
     });
   };
 
@@ -260,14 +272,10 @@ module.exports = fp(async (fastify, fastifyOptions) => {
     });
 
     const { count, rows } = await models.fileRecord.findAndCountAll({
-      where: queryFilter,
-      offset: perPage * (currentPage - 1),
-      limit: perPage,
-      order: [['createdAt', 'desc']]
+      where: queryFilter, offset: perPage * (currentPage - 1), limit: perPage, order: [['createdAt', 'desc']]
     });
     return {
-      pageData: rows.map(item => Object.assign({}, item.get({ plain: true }), { id: item.uuid })),
-      totalCount: count
+      pageData: rows.map(item => Object.assign({}, item.get({ plain: true }), { id: item.uuid })), totalCount: count
     };
   };
 
@@ -312,8 +320,7 @@ module.exports = fp(async (fastify, fastifyOptions) => {
     }
 
     return Object.assign({}, file.get({ plain: true }), {
-      id: file.uuid,
-      buffer
+      id: file.uuid, buffer
     });
   };
 
@@ -389,32 +396,21 @@ module.exports = fp(async (fastify, fastifyOptions) => {
     const tmpPath = path.resolve(os.tmpdir(), `temp_${id}_${crypto.randomBytes(6).toString('hex')}`);
     await compressing[type].uncompress(fileStream, tmpPath);
     const files = await glob(globOptions, {
-      cwd: tmpPath,
-      nodir: true
+      cwd: tmpPath, nodir: true
     });
-    console.log('---->1:', files);
     //将文件上传到文件系统
     const fileList = [];
     for (let dir of files) {
       const filepath = path.resolve(tmpPath, dir);
       const filename = path.basename(dir);
-      const fileStream = fs.createReadStream(filepath);
       const mimetype = MimeTypes.lookup(filepath) || 'application/octet-stream';
-      console.log(filename, mimetype);
       const file = await uploadToFileSystem({
         file: {
-          filename,
-          mimetype,
-          encoding: 'binary',
-          file: fileStream
-        },
-        filename,
-        namespace
+          filename, mimetype, encoding: 'binary', filepath
+        }, filename, namespace
       });
-      console.log('---->2:', dir, file);
       fileList.push({
-        dir,
-        file
+        dir, file
       });
     }
     fs.remove(tmpPath).catch(console.error);
