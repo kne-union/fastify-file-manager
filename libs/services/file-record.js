@@ -416,7 +416,7 @@ module.exports = fp(async (fastify, fastifyOptions) => {
         };
       })
     );
-    await fs.remove(tmpPath).catch(console.error);
+    fs.remove(tmpPath).catch(console.error);
     return fileList;
   };
 
