@@ -83,7 +83,7 @@ module.exports = fp(async (fastify, fastifyOptions) => {
     }
 
     //清除临时文件
-    await fs.remove(tmpPath);
+    fs.remove(tmpPath).catch(console.error);
 
     const outputFile = await (async create => {
       if (!id) {
@@ -364,10 +364,10 @@ module.exports = fp(async (fastify, fastifyOptions) => {
       compressStream.addEntry(path.resolve(filepath));
     });
     compressStream.on('error', () => {
-      fs.remove(tmpPath);
+      fs.remove(tmpPath).catch(console.error);
     });
     compressStream.on('end', () => {
-      fs.remove(tmpPath);
+      fs.remove(tmpPath).catch(console.error);
     });
     return compressStream;
   };
@@ -416,9 +416,7 @@ module.exports = fp(async (fastify, fastifyOptions) => {
         };
       })
     );
-    //清除临时文件
-    await fs.remove(tmpPath);
-
+    await fs.remove(tmpPath).catch(console.error);
     return fileList;
   };
 
