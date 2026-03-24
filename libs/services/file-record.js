@@ -13,6 +13,8 @@ module.exports = fp(async (fastify, fastifyOptions) => {
   const { models, services } = fastify.fileManager;
   const { Op } = fastify.sequelize.Sequelize;
 
+  const sanitizeFilename = filename => filename.replace(/[\\/:*?"<>|\0]/g, '_');
+
   const detail = async ({ id, uuid, namespace }) => {
     const file = await models.fileRecord.findOne({
       where: { uuid: String(id || uuid).split('?')[0] }
@@ -25,7 +27,8 @@ module.exports = fp(async (fastify, fastifyOptions) => {
     return file;
   };
   const uploadToFileSystem = async ({ id, file, namespace, options }) => {
-    const { filename, encoding, mimetype } = file;
+    const { encoding, mimetype } = file;
+    const filename = sanitizeFilename(file.filename);
     const hash = crypto.createHash('md5');
     const extension = path.extname(filename);
     const tmpPath = path.resolve(os.tmpdir(), `temp_${filename}_${crypto.randomBytes(6).toString('hex')}`);
@@ -190,7 +193,7 @@ module.exports = fp(async (fastify, fastifyOptions) => {
     }
 
     const tempFile = {
-      filename,
+      filename: sanitizeFilename(filename),
       mimetype: response.headers.get('content-type'),
       encoding: 'binary',
       file: nodeStream
@@ -308,6 +311,10 @@ module.exports = fp(async (fastify, fastifyOptions) => {
 
   const renameFile = async ({ id, filename }) => {
     const file = await detail({ id });
+    filename = sanitizeFilename(filename);
+    if (!path.extname(filename) && path.extname(file.filename)) {
+      filename += path.extname(file.filename);
+    }
     file.filename = filename;
     await file.save();
   };
