@@ -32,7 +32,6 @@ module.exports = fp(async (fastify, fastifyOptions) => {
     let fileSize = 0;
     if (file.file) {
       const writeStream = fs.createWriteStream(tmpPath);
-
       await new Promise((resolve, reject) => {
         const cleanup = () => {
           file.file.removeAllListeners();
@@ -74,8 +73,15 @@ module.exports = fp(async (fastify, fastifyOptions) => {
       await fs.writeFile(tmpPath, buffer);
       fileSize = buffer.byteLength;
     } else if (file.filepath) {
+      const readStream = fs.createReadStream(file.filepath);
+      await new Promise((resolve, reject) => {
+        readStream.on('data', chunk => hash.update(chunk));
+        readStream.on('end', resolve);
+        readStream.on('error', reject);
+      });
       await fs.copy(file.filepath, tmpPath);
       const stat = await fs.stat(tmpPath);
+
       fileSize = stat.size;
     } else {
       throw new Error('文件类型不支持');
@@ -118,16 +124,18 @@ module.exports = fp(async (fastify, fastifyOptions) => {
       file.options = options;
       await file.save();
       return file;
-    })(() => models.fileRecord.create({
-      filename,
-      namespace: namespace || fastifyOptions.namespace,
-      encoding,
-      mimetype,
-      hash: digest,
-      size: fileSize,
-      storageType,
-      options
-    }));
+    })(() =>
+      models.fileRecord.create({
+        filename,
+        namespace: namespace || fastifyOptions.namespace,
+        encoding,
+        mimetype,
+        hash: digest,
+        size: fileSize,
+        storageType,
+        options
+      })
+    );
     return Object.assign({}, outputFile.get({ plain: true }), { id: outputFile.uuid });
   };
 
@@ -182,7 +190,10 @@ module.exports = fp(async (fastify, fastifyOptions) => {
     }
 
     const tempFile = {
-      filename, mimetype: response.headers.get('content-type'), encoding: 'binary', file: nodeStream
+      filename,
+      mimetype: response.headers.get('content-type'),
+      encoding: 'binary',
+      file: nodeStream
     };
     return await uploadToFileSystem({ id, file: tempFile, namespace, options });
   };
@@ -217,7 +228,9 @@ module.exports = fp(async (fastify, fastifyOptions) => {
       targetFile = await ossServices.downloadFile({ filename: targetFileName });
     }
     return Object.assign({}, file.get({ pain: true }), {
-      id: file.uuid, filePath: targetFileName, targetFile
+      id: file.uuid,
+      filePath: targetFileName,
+      targetFile
     });
   };
 
@@ -272,10 +285,14 @@ module.exports = fp(async (fastify, fastifyOptions) => {
     });
 
     const { count, rows } = await models.fileRecord.findAndCountAll({
-      where: queryFilter, offset: perPage * (currentPage - 1), limit: perPage, order: [['createdAt', 'desc']]
+      where: queryFilter,
+      offset: perPage * (currentPage - 1),
+      limit: perPage,
+      order: [['createdAt', 'desc']]
     });
     return {
-      pageData: rows.map(item => Object.assign({}, item.get({ plain: true }), { id: item.uuid })), totalCount: count
+      pageData: rows.map(item => Object.assign({}, item.get({ plain: true }), { id: item.uuid })),
+      totalCount: count
     };
   };
 
@@ -320,7 +337,8 @@ module.exports = fp(async (fastify, fastifyOptions) => {
     }
 
     return Object.assign({}, file.get({ plain: true }), {
-      id: file.uuid, buffer
+      id: file.uuid,
+      buffer
     });
   };
 
@@ -396,7 +414,8 @@ module.exports = fp(async (fastify, fastifyOptions) => {
     const tmpPath = path.resolve(os.tmpdir(), `temp_${id}_${crypto.randomBytes(6).toString('hex')}`);
     await compressing[type].uncompress(fileStream, tmpPath);
     const files = await glob(globOptions, {
-      cwd: tmpPath, nodir: true
+      cwd: tmpPath,
+      nodir: true
     });
     //将文件上传到文件系统
     const fileList = [];
@@ -406,11 +425,17 @@ module.exports = fp(async (fastify, fastifyOptions) => {
       const mimetype = MimeTypes.lookup(filepath) || 'application/octet-stream';
       const file = await uploadToFileSystem({
         file: {
-          filename, mimetype, encoding: 'binary', filepath
-        }, filename, namespace
+          filename,
+          mimetype,
+          encoding: 'binary',
+          filepath
+        },
+        filename,
+        namespace
       });
       fileList.push({
-        dir, file
+        dir,
+        file
       });
     }
     fs.remove(tmpPath).catch(console.error);
