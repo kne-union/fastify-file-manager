@@ -381,15 +381,22 @@ module.exports = fp(async (fastify, fastifyOptions) => {
     await fs.mkdir(tmpPath);
     const files = [];
     for (const file of fileList) {
-      const filepath = path.resolve(tmpPath, file.filename);
-      const writeStream = fs.createWriteStream(filepath);
-      const fileStream = await getFileReadStream(file);
-      fileStream.pipe(writeStream);
-      await new Promise((resolve, reject) => {
-        writeStream.on('finish', resolve);
-        writeStream.on('error', reject);
-      });
-      files.push(filepath);
+      try {
+        const fileStream = await getFileReadStream(file);
+        const filepath = path.resolve(tmpPath, file.filename);
+        const writeStream = fs.createWriteStream(filepath);
+        fileStream.pipe(writeStream);
+        await new Promise((resolve, reject) => {
+          writeStream.on('finish', resolve);
+          writeStream.on('error', reject);
+        });
+        files.push(filepath);
+      } catch (error) {
+        console.warn(`skip invalid file: ${file.uuid}`, error.message);
+      }
+    }
+    if (files.length === 0) {
+      throw new Error('No valid files to compress');
     }
     const compressStream = new compressing[type].Stream();
     files.forEach(filepath => {
