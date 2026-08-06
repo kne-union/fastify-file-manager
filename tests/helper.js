@@ -5,7 +5,7 @@ const os = require('node:os');
 
 let counter = 0;
 
-module.exports = async function createTestApp() {
+module.exports = async function createTestApp(options = {}) {
   const tmpDir = path.resolve(os.tmpdir(), `test_file_manager_${Date.now()}_${++counter}_${Math.random().toString(36).slice(2)}`);
   await fs.ensureDir(tmpDir);
 
@@ -16,20 +16,27 @@ module.exports = async function createTestApp() {
     modelsGlobOptions: { syncOptions: {} }
   });
 
+  app.register(require('@kne/fastify-group'), {
+    prefix: '/api/v3/group',
+    getAuthenticate: () => async () => {}
+  });
+
   app.register(
-    require('fastify-plugin')(async (fastify) => {
+    require('fastify-plugin')(async fastify => {
       await fastify.register(require('../index'), {
         root: tmpDir,
         namespace: 'test',
         prefix: '/api/v3/static',
         ossAdapter: () => ({}),
-        createAuthenticate: () => async () => {}
+        createAuthenticate: () => async () => {},
+        getAuthenticate: () => async () => {},
+        ...options
       });
     })
   );
 
   app.register(
-    require('fastify-plugin')(async (fastify) => {
+    require('fastify-plugin')(async fastify => {
       await fastify.sequelize.sync();
     })
   );
@@ -40,6 +47,7 @@ module.exports = async function createTestApp() {
     app,
     services: app.fileManager.services,
     models: app.fileManager.models,
+    groupServices: app.group.services,
     tmpDir,
     async close() {
       await app.close();

@@ -11,39 +11,41 @@
 | `static`                    | object   | `{}`                                 | 否  | 透传[@fastify/static](https://github.com/fastify/fastify-static)的所有配置 |
 | **适配器配置**                   |          |                                      |    |                                                                     |
 | `ossAdapter`                | function | `() => {}`                           | 否  | OSS适配器工厂函数，需返回OSS配置对象                                               |
-| `createAuthenticate`        | function | `() => []`                           | 否  | 认证中间件工厂函数                                                           |
+| `createAuthenticate`        | function | `() => []`                           | 否  | 扁平文件接口认证中间件工厂（`file:read` / `file:write` / `file:mange`）              |
+| `enableFolder`              | boolean  | `true`                               | 否  | 是否启用文件夹能力（依赖先注册 `@kne/fastify-group`）                               |
+| `groupName`                 | string   | `'group'`                            | 否  | fastify-group 命名空间名                                                   |
+| `defaultFolderType`         | string   | `'admin-file-system'`                | 否  | 文件夹相关默认业务域 type（上传自动挂载、`folder/tree`、`folder/add-files` 未传 type 时使用） |
+| `getAuthenticate`           | function | `() => []`                           | 否  | 文件夹接口认证工厂，入参 `read` \| `write` \| `delete`，应在 hook 内按 `request.type` 鉴权 |
 
 ### 配置示例
 
 ```javascript
-const options = {
-    root: '/data/uploads',  // 自定义存储目录
-    namespace: 'user_files', // 业务隔离命名空间
-    multipart: {
-        limits: {
-            fileSize: 100 * 1024 * 1024 // 调整为100MB
-        }
-    },
-    ossAdapter: () => {
-        /** 需要注册 '@kne/fastify-aliyun' 插件
-         * fastify.register(require('@kne/fastify-aliyun'), {
-         prefix: `${apiPrefix}/aliyun`,
-         oss: {
-         baseDir: 'leapin-setting',
-         region: fastify.config.OSS_REGION,
-         accessKeyId: fastify.config.OSS_ACCESS_KEY_ID,
-         accessKeySecret: fastify.config.OSS_ACCESS_KEY_SECRET,
-         bucket: fastify.config.OSS_BUCKET
-         }
-         });
-         * */
-        return fastify.aliyun.services.oss;
-    },
-    createAuthenticate: (requiredPermission) => [
-        fastify.jwtVerify,
-        checkPermission(requiredPermission)
-    ]
-}
+const getAuthenticate = action => [
+  async request => {
+    const type = request.query?.type ?? request.body?.type;
+    if (!type) {
+      throw new Error('必须传入类型');
+    }
+    await assertTypePermission(request, { type, action });
+  }
+];
+
+// 必须先注册 group，再注册 file-manager
+fastify.register(require('@kne/fastify-group'), {
+  prefix: `${apiPrefix}/group`,
+  getAuthenticate
+});
+
+fastify.register(require('@kne/fastify-file-manager'), {
+  root: '/data/uploads',
+  namespace: 'user_files',
+  prefix: `${apiPrefix}/static`,
+  getAuthenticate,
+  createAuthenticate: requiredPermission => [
+    fastify.jwtVerify,
+    checkPermission(requiredPermission)
+  ]
+});
 ```
 
 ### 配置说明
@@ -56,18 +58,66 @@ const options = {
     - 生产环境建议设置为绝对路径（如 `/var/www/uploads`）
 
 3. **权限控制**  
-   `createAuthenticate` 应返回 Fastify 钩子数组，典型实现：
-   ```javascript
-   createAuthenticate: (perm) => [
-     fastify.authenticate,
-     (req, reply, done) => {
-       if(!req.user.permissions.includes(perm)) {
-         return reply.code(403).send()
-       }
-       done()
-     }
-   ]
-   ```
+   - 扁平文件接口使用 `createAuthenticate`
+   - 文件夹接口使用 `getAuthenticate(action)`，请在 hook 内读取 `request.query.type` / `request.body.type` 做域鉴权
+
+4. **文件夹节点约定**（存于 fastify-group）
+    - 业务域：`type`（与请求参数一致）
+    - 文件夹：`options.kind = 'folder'`
+    - 文件：`options.kind = 'file'`，`options.fileId` 为 file-manager 文件 uuid
+
+### 文件夹接口
+
+#### `GET {prefix}/folder/tree`
+
+查询指定 `type` 的文件树。
+
+- 鉴权：`getAuthenticate('read')`
+- Query：`type`（可选，默认 `defaultFolderType`）、`language`
+
+#### `POST {prefix}/folder/mkdir`
+
+新建文件夹节点。
+
+- 鉴权：`getAuthenticate('write')`
+- Body：`type`、`name`（必填）、`parentId?`、`language?`
+
+#### `POST {prefix}/folder/upload`
+
+上传文件并创建文件节点（multipart）。
+
+- 鉴权：`getAuthenticate('write')`
+- Query：`type`（必填）、`parentId?`、`namespace?`、`language?`
+
+#### `POST {prefix}/folder/remove`
+
+递归删除节点及其子孙；文件节点同步删除 file-record。
+
+- 鉴权：`getAuthenticate('delete')`
+- Body：`type`、`id`（必填）、`language?`
+
+#### `POST {prefix}/folder/move`
+
+将一个或多个文件/文件夹节点移动到目标文件夹。
+
+- 鉴权：`getAuthenticate('write')`
+- Body：`type`、`ids`（必填，数组）、`parentId?`（空为根目录）、`language?`
+
+#### `POST {prefix}/folder/copy`
+
+将一个或多个文件/文件夹节点复制到目标文件夹；文件以 `linked` 节点挂载，文件夹递归复制。
+
+- 鉴权：`getAuthenticate('write')`
+- Body：`type`、`ids`（必填，数组）、`parentId?`（空为根目录）、`language?`
+
+#### `POST {prefix}/folder/add-files`
+
+将文件库已有文件以 `linked` 节点挂到文件夹（删除树节点不删文件实体）。
+
+- 鉴权：`getAuthenticate('write')`
+- Body：`ids`（必填）、`type?`（默认 `defaultFolderType`）、`parentId?`、`language?`
+
+扁平上传 `POST {prefix}/upload` / `uploadUrl`：保存成功后默认挂到 `admin-file-system` 根目录（可用 `defaultFolderType` / 请求 `type` 覆盖）；传 `path` 则按路径 `ensurePath` 后挂载（`linked: true`）。
 
 ### 文件上传接口
 
@@ -84,8 +134,13 @@ const options = {
 
 | 参数        | 位置    | 类型     | 必填 | 描述       | 示例             |
 |-----------|-------|--------|----|----------|----------------|
-| namespace | query | string | 否  | 文件分类命名空间 | `user-avatars` |
+| namespace | query / form | string | 否  | 文件分类命名空间 | `user-avatars` |
+| path      | query / form | string | 否  | 文件系统文件夹路径（如 `a/b/c`）；**未传则挂到根目录**；路径不存在则逐级创建 | `docs/inbox` |
+| type      | query / form | string | 否  | 文件系统业务域，默认 `admin-file-system` | `admin-file-system` |
+| language  | query / form | string | 否  | 语言 | `zh-CN` |
 | file      | body  | file   | 是  | 要上传的文件   | -              |
+
+上传成功后会自动以 `linked` 节点挂到文件系统，响应额外返回 `folder`。
 
 ##### 请求示例
 
@@ -94,6 +149,15 @@ curl -X POST \
   -H "Authorization: Bearer <JWT_TOKEN>" \
   -F "file=@test.jpg" \
   "http://localhost:3000/api/v1/static/upload?namespace=user-avatars"
+```
+
+指定子路径：
+
+```bash
+curl -X POST \
+  -H "Authorization: Bearer <JWT_TOKEN>" \
+  -F "file=@report.pdf" \
+  "http://localhost:3000/api/v1/static/upload?path=docs/inbox&type=admin-file-system"
 ```
 
 ##### 响应状态码
