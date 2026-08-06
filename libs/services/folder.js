@@ -47,6 +47,44 @@ module.exports = fp(async (fastify, fastifyOptions) => {
     return node ? (typeof node.get === 'function' ? node.get({ plain: true }) : node) : null;
   };
 
+  /** 重名时在扩展名前加 [_时间戳]，如 avatar.png → avatar[_1712345678901].png */
+  const withTimestampSuffix = name => {
+    const str = String(name || 'file');
+    const lastDot = str.lastIndexOf('.');
+    const hasExt = lastDot > 0 && lastDot < str.length - 1;
+    const base = hasExt ? str.slice(0, lastDot) : str;
+    const ext = hasExt ? str.slice(lastDot) : '';
+    return `${base}[_${Date.now()}]${ext}`;
+  };
+
+  const allocateUniqueSiblingName = async ({ type, parentId, name, language, tenantId, existingNames }) => {
+    const taken = async candidate => {
+      if (existingNames && existingNames.has(String(candidate))) {
+        return true;
+      }
+      const existing = await findChildByName({
+        type,
+        parentId: parentId || null,
+        name: candidate,
+        language,
+        tenantId
+      });
+      return !!existing;
+    };
+
+    let candidate = String(name || 'file');
+    if (!(await taken(candidate))) {
+      return candidate;
+    }
+    for (let i = 0; i < 5; i++) {
+      candidate = withTimestampSuffix(name);
+      if (!(await taken(candidate))) {
+        return candidate;
+      }
+    }
+    return withTimestampSuffix(`${name}_${Math.random().toString(36).slice(2, 8)}`);
+  };
+
   const assertUniqueSiblingName = async ({ type, parentId, name, language, tenantId, excludeId }) => {
     const existing = await findChildByName({ type, parentId: parentId || null, name, language, tenantId });
     if (existing && String(existing.id) !== String(excludeId || '')) {
@@ -155,7 +193,7 @@ module.exports = fp(async (fastify, fastifyOptions) => {
     }
 
     const targetParentId = parentId || null;
-    await assertUniqueSiblingName({
+    const uniqueName = await allocateUniqueSiblingName({
       type,
       parentId: targetParentId,
       name: file.filename,
@@ -164,7 +202,7 @@ module.exports = fp(async (fastify, fastifyOptions) => {
     });
 
     const record = await services.fileRecord.uploadToFileSystem({
-      file,
+      file: Object.assign({}, file, { filename: uniqueName }),
       namespace: namespace || fastifyOptions.namespace
     });
 
@@ -496,7 +534,7 @@ module.exports = fp(async (fastify, fastifyOptions) => {
       return null;
     }
 
-    await assertUniqueSiblingName({
+    const uniqueName = await allocateUniqueSiblingName({
       type,
       parentId: targetParentId,
       name: record.filename,
@@ -506,7 +544,7 @@ module.exports = fp(async (fastify, fastifyOptions) => {
 
     const tag = await groupServices.save({
       type,
-      name: record.filename,
+      name: uniqueName,
       parentId: targetParentId,
       language,
       tenantId,
@@ -570,12 +608,17 @@ module.exports = fp(async (fastify, fastifyOptions) => {
       if (existingFileIds.has(linkedFileId) || existingFileIds.has(String(record.id)) || existingFileIds.has(String(fileId))) {
         continue;
       }
-      if (existingNames.has(String(record.filename))) {
-        throw new Error(`同一文件夹下已存在同名文件或文件夹：${record.filename}`);
-      }
+      const uniqueName = await allocateUniqueSiblingName({
+        type,
+        parentId: targetParentId,
+        name: record.filename,
+        language,
+        tenantId,
+        existingNames
+      });
       const tag = await groupServices.save({
         type,
-        name: record.filename,
+        name: uniqueName,
         parentId: targetParentId,
         language,
         tenantId,
@@ -588,7 +631,7 @@ module.exports = fp(async (fastify, fastifyOptions) => {
         }
       });
       existingFileIds.add(linkedFileId);
-      existingNames.add(String(record.filename));
+      existingNames.add(String(uniqueName));
       results.push(typeof tag.get === 'function' ? tag.get({ plain: true }) : tag);
     }
     return results;
