@@ -211,15 +211,14 @@ describe('folder services', () => {
     assert.equal(first[0].options.fileId, fileA.id);
     assert.equal(first[0].options.linked, true);
 
-    await assert.rejects(
-      () =>
-        services.folder.addFiles({
-          type,
-          parentId: folder.id,
-          ids: [fileB.id]
-        }),
-      /同一文件夹下已存在同名/
-    );
+    const renamed = await services.folder.addFiles({
+      type,
+      parentId: folder.id,
+      ids: [fileB.id]
+    });
+    assert.equal(renamed.length, 1);
+    assert.match(renamed[0].name, /^same-name\[\_\d+\]\.txt$/);
+    assert.equal(renamed[0].options.fileId, fileB.id);
 
     const second = await services.folder.addFiles({
       type,
@@ -229,10 +228,10 @@ describe('folder services', () => {
     assert.equal(second.length, 0);
 
     const tree = await services.folder.getTree({ type });
-    assert.equal(tree[0].children.length, 2);
+    assert.equal(tree[0].children.length, 3);
   });
 
-  it('should reject duplicate name on upload and rename', async () => {
+  it('should auto rename duplicate upload name and still reject rename conflict', async () => {
     const type = 'fs-unique-name';
     const folder = await services.folder.mkdir({ type, name: 'Docs' });
     await services.folder.upload({
@@ -245,20 +244,17 @@ describe('folder services', () => {
         buffer: Buffer.from('one')
       }
     });
-    await assert.rejects(
-      () =>
-        services.folder.upload({
-          type,
-          parentId: folder.id,
-          file: {
-            filename: 'readme.txt',
-            mimetype: 'text/plain',
-            encoding: 'utf-8',
-            buffer: Buffer.from('two')
-          }
-        }),
-      /同一文件夹下已存在同名/
-    );
+    const duplicated = await services.folder.upload({
+      type,
+      parentId: folder.id,
+      file: {
+        filename: 'readme.txt',
+        mimetype: 'text/plain',
+        encoding: 'utf-8',
+        buffer: Buffer.from('two')
+      }
+    });
+    assert.match(duplicated.name, /^readme\[\_\d+\]\.txt$/);
 
     const other = await services.folder.upload({
       type,
