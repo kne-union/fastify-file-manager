@@ -22,6 +22,14 @@ module.exports = fp(
         },
         createAuthenticate: () => {
           return [];
+        },
+        // 文件夹能力依赖 @kne/fastify-group，需先注册；设为 false 可关闭
+        enableFolder: true,
+        groupName: 'group',
+        // 上传自动挂载文件系统时的默认业务域
+        defaultFolderType: 'admin-file-system',
+        getAuthenticate: () => {
+          return [];
         }
       },
       options

@@ -15,10 +15,28 @@ module.exports = fp(async (fastify, fastifyOptions) => {
 
   const sanitizeFilename = filename => filename.replace(/[\\/:*?"<>|\0]/g, '_');
 
+  const isUuid = value =>
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || ''));
+
   const detail = async ({ id, uuid, namespace }) => {
-    const file = await models.fileRecord.findOne({
-      where: { uuid: String(id || uuid).split('?')[0] }
-    });
+    const key = String(id || uuid || '')
+      .split('?')[0]
+      .trim();
+    if (!key) {
+      throw new Error('文件不存在');
+    }
+
+    let file = null;
+    // uuid 列是 UUID 类型：非 uuid 字符串会直接抛 invalid input syntax，不能先查再 fallback
+    if (isUuid(key)) {
+      file = await models.fileRecord.findOne({
+        where: { uuid: key }
+      });
+    }
+    // 兼容历史节点把主键写进 options.fileId / 接口传主键的情况
+    if (!file) {
+      file = await models.fileRecord.findByPk(key);
+    }
 
     if (!file) {
       throw new Error('文件不存在');

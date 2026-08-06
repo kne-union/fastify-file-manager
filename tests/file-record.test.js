@@ -225,9 +225,12 @@ describe('fastify-file-manager', () => {
       // remove stored file from disk
       await fs.remove(path.resolve(tmpDir, `${uploadResult.hash}.txt`));
 
-      await assert.rejects(() => services.fileRecord.getFileUrl({ id: uploadResult.id }), function (err) {
-        return err.status === 404;
-      });
+      await assert.rejects(
+        () => services.fileRecord.getFileUrl({ id: uploadResult.id }),
+        function (err) {
+          return err.status === 404;
+        }
+      );
     });
   });
 
@@ -284,7 +287,9 @@ describe('fastify-file-manager', () => {
 
     it('should filter by filename', async () => {
       const result = await services.fileRecord.getFileList({
-        currentPage: 1, perPage: 10, filter: { filename: 'hello' }
+        currentPage: 1,
+        perPage: 10,
+        filter: { filename: 'hello' }
       });
 
       assert.equal(result.totalCount, 1);
@@ -293,7 +298,9 @@ describe('fastify-file-manager', () => {
 
     it('should filter by namespace', async () => {
       const result = await services.fileRecord.getFileList({
-        currentPage: 1, perPage: 10, namespace: 'ns-a'
+        currentPage: 1,
+        perPage: 10,
+        namespace: 'ns-a'
       });
 
       assert.equal(result.totalCount, 2);
@@ -301,7 +308,9 @@ describe('fastify-file-manager', () => {
 
     it('should filter by size range', async () => {
       const result = await services.fileRecord.getFileList({
-        currentPage: 1, perPage: 10, filter: { size: [0, 0.004] }
+        currentPage: 1,
+        perPage: 10,
+        filter: { size: [0, 0.004] }
       });
 
       assert.ok(result.totalCount >= 0);
@@ -313,7 +322,9 @@ describe('fastify-file-manager', () => {
       });
 
       const result = await services.fileRecord.getFileList({
-        currentPage: 1, perPage: 10, filter: { id: file.id }
+        currentPage: 1,
+        perPage: 10,
+        filter: { id: file.id }
       });
 
       assert.equal(result.totalCount, 1);
@@ -322,7 +333,9 @@ describe('fastify-file-manager', () => {
 
     it('should return empty list when no files match', async () => {
       const result = await services.fileRecord.getFileList({
-        currentPage: 1, perPage: 10, filter: { filename: 'non-existent-file' }
+        currentPage: 1,
+        perPage: 10,
+        filter: { filename: 'non-existent-file' }
       });
 
       assert.equal(result.totalCount, 0);
@@ -333,10 +346,7 @@ describe('fastify-file-manager', () => {
       const result = await services.fileRecord.getFileList({ currentPage: 1, perPage: 10 });
 
       for (let i = 1; i < result.pageData.length; i++) {
-        assert.ok(
-          new Date(result.pageData[i - 1].createdAt) >= new Date(result.pageData[i].createdAt),
-          'files should be ordered by createdAt desc'
-        );
+        assert.ok(new Date(result.pageData[i - 1].createdAt) >= new Date(result.pageData[i].createdAt), 'files should be ordered by createdAt desc');
       }
     });
   });
@@ -397,10 +407,7 @@ describe('fastify-file-manager', () => {
     });
 
     it('should throw for non-existing file', async () => {
-      await assert.rejects(
-        () => services.fileRecord.renameFile({ id: 'non-existent-id', filename: 'new.txt' }),
-        { message: '文件不存在' }
-      );
+      await assert.rejects(() => services.fileRecord.renameFile({ id: 'non-existent-id', filename: 'new.txt' }), { message: '文件不存在' });
     });
   });
 
@@ -521,15 +528,7 @@ describe('fastify-file-manager', () => {
       const response = await app.inject({
         method: 'POST',
         url: '/api/v3/static/upload',
-        payload: Buffer.concat([
-          Buffer.from(
-            '--boundary\r\n' +
-              'Content-Disposition: form-data; name="file"; filename="api-test.txt"\r\n' +
-              'Content-Type: text/plain\r\n\r\n'
-          ),
-          testBuffer,
-          Buffer.from('\r\n--boundary--\r\n')
-        ]),
+        payload: Buffer.concat([Buffer.from('--boundary\r\n' + 'Content-Disposition: form-data; name="file"; filename="api-test.txt"\r\n' + 'Content-Type: text/plain\r\n\r\n'), testBuffer, Buffer.from('\r\n--boundary--\r\n')]),
         headers: {
           'content-type': 'multipart/form-data; boundary=boundary'
         }
@@ -622,6 +621,28 @@ describe('fastify-file-manager', () => {
 
       const result = await services.fileRecord.getFileList({ currentPage: 1, perPage: 10 });
       assert.equal(result.totalCount, 0);
+    });
+
+    it('POST /download-files - should download zip archive', async () => {
+      const file1 = await services.fileRecord.uploadToFileSystem({
+        file: { filename: 'dl1.txt', mimetype: 'text/plain', encoding: 'utf-8', buffer: Buffer.from('one') }
+      });
+      const file2 = await services.fileRecord.uploadToFileSystem({
+        file: { filename: 'dl2.txt', mimetype: 'text/plain', encoding: 'utf-8', buffer: Buffer.from('two') }
+      });
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/api/v3/static/download-files',
+        payload: { ids: [file1.id, file2.id] },
+        headers: { 'content-type': 'application/json' }
+      });
+
+      assert.equal(response.statusCode, 200);
+      assert.equal(response.headers['content-type'], 'application/zip');
+      assert.ok(String(response.headers['content-disposition'] || '').includes('files.zip'));
+      assert.ok(Buffer.isBuffer(response.rawPayload));
+      assert.ok(response.rawPayload.length > 0);
     });
   });
 });
