@@ -12,8 +12,10 @@
 | **适配器配置**                   |          |                                      |    |                                                                     |
 | `ossAdapter`                | function | `() => {}`                           | 否  | OSS适配器工厂函数，需返回OSS配置对象                                               |
 | `createAuthenticate`        | function | `() => []`                           | 否  | 扁平文件接口认证中间件工厂（`file:read` / `file:write` / `file:mange`）              |
-| `enableFolder`              | boolean  | `true`                               | 否  | 是否启用文件夹能力（依赖先注册 `@kne/fastify-group`）                               |
-| `groupName`                 | string   | `'group'`                            | 否  | fastify-group 命名空间名                                                   |
+| `enableFolder`              | boolean  | `true`                               | 否  | 是否启用文件夹能力（插件内部自动注册 `@kne/fastify-group`）                           |
+| `groupName`                 | string   | `'file-manager-folder'`              | 否  | 内部 fastify-group 命名空间名（挂在 `fastify[groupName]`）                      |
+| `groupPrefix`               | string   | `` `${prefix}/folder-group` ``       | 否  | 内部 group HTTP 前缀（`getAuthenticate` 固定 403，禁止直接访问）                 |
+| `groupDbTableNamePrefix`    | string   | `'t_'`                               | 否  | 内部 group 表名前缀（最终表如 `t_file_manager_folder_tag`）                      |
 | `defaultFolderType`         | string   | `'admin-file-system'`                | 否  | 文件夹相关默认业务域 type（上传自动挂载、`folder/tree`、`folder/add-files` 未传 type 时使用） |
 | `getAuthenticate`           | function | `() => []`                           | 否  | 文件夹接口认证工厂，入参 `read` \| `write` \| `delete`，应在 hook 内按 `request.type` 鉴权 |
 
@@ -30,12 +32,7 @@ const getAuthenticate = action => [
   }
 ];
 
-// 必须先注册 group，再注册 file-manager
-fastify.register(require('@kne/fastify-group'), {
-  prefix: `${apiPrefix}/group`,
-  getAuthenticate
-});
-
+// 无需再单独注册 group，file-manager 会内部挂载 name=file-manager-folder 的 group
 fastify.register(require('@kne/fastify-file-manager'), {
   root: '/data/uploads',
   namespace: 'user_files',
@@ -61,11 +58,10 @@ fastify.register(require('@kne/fastify-file-manager'), {
    - 扁平文件接口使用 `createAuthenticate`
    - 文件夹接口使用 `getAuthenticate(action)`，请在 hook 内读取 `request.query.type` / `request.body.type` 做域鉴权
 
-4. **文件夹节点约定**（存于 fastify-group）
+4. **文件夹节点约定**（存于内部 `file-manager-folder` group）
     - 业务域：`type`（与请求参数一致）
     - 文件夹：`options.kind = 'folder'`
     - 文件：`options.kind = 'file'`，`options.fileId` 为 file-manager 文件 uuid
-
 ### 文件夹接口
 
 #### `GET {prefix}/folder/tree`

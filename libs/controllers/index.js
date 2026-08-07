@@ -356,18 +356,59 @@ module.exports = fp(async (fastify, options) => {
       onRequest: folderOnRequest('read', 'query'),
       schema: {
         summary: '获取文件夹树',
-        description: '基于 fastify-group 获取指定 type 的文件树；未传 type 时使用 defaultFolderType',
+        description: '获取指定 type 的文件树；kind=folder 时仅返回文件夹节点；未传 type 时使用 defaultFolderType',
         query: {
           type: 'object',
           properties: {
             type: { type: 'string', description: '业务域类型，默认 admin-file-system' },
-            language: { type: 'string', description: '语言' }
+            language: { type: 'string', description: '语言' },
+            kind: { type: 'string', description: '传 folder 时仅返回文件夹树' }
           }
         }
       }
     },
     async request => {
       return await services.folder.getTree(request.query);
+    }
+  );
+
+  fastify.post(
+    `${options.prefix}/folder/list`,
+    {
+      onRequest: folderOnRequest('read', 'body'),
+      schema: {
+        summary: '分页获取目录子节点',
+        description: '按 parentId 分页列出直接子节点；文件夹优先，再按名称排序；未传 type 时使用 defaultFolderType',
+        body: {
+          type: 'object',
+          properties: {
+            type: { type: 'string', description: '业务域类型，默认 admin-file-system' },
+            parentId: { type: 'string', description: '父文件夹 id，根目录可不传' },
+            currentPage: { type: 'number', description: '当前页数' },
+            perPage: { type: 'number', description: '每页数量' },
+            keyword: { type: 'string', description: '按名称模糊搜索' },
+            language: { type: 'string', description: '语言' }
+          }
+        }
+      }
+    },
+    async request => {
+      const { type, parentId, currentPage, perPage, keyword, language } = Object.assign(
+        {},
+        {
+          currentPage: 1,
+          perPage: 20
+        },
+        request.body
+      );
+      return await services.folder.getList({
+        type,
+        parentId,
+        currentPage,
+        perPage,
+        keyword,
+        language
+      });
     }
   );
 

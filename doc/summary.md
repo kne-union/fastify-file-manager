@@ -8,7 +8,7 @@ Fastify File Manager 是一个基于 Fastify 框架构建的高性能文件管�
 - 🔒 **安全认证**：集成 JWT 认证和权限控制
 - 📁 **多存储支持**：可配置本地存储或云存储
 - 🏷️ **文件分类**：通过命名空间(namespace)组织文件
-- 📂 **文件夹系统**：基于 `@kne/fastify-group` 的树形目录（`type` 域隔离，`options.kind` 区分文件/文件夹）
+- 📂 **文件夹系统**：插件内部注册 `@kne/fastify-group`（命名空间 `file-manager-folder`），提供树形目录（`type` 域隔离，`options.kind` 区分文件/文件夹）
 - 📊 **元数据管理**：记录文件大小、类型、上传时间等信息
 - 🔍 **文件检索**：支持按命名空间查询文件列表
 
