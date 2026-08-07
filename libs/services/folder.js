@@ -5,10 +5,10 @@ module.exports = fp(async (fastify, fastifyOptions) => {
     return;
   }
 
-  const groupName = fastifyOptions.groupName || 'group';
+  const groupName = fastifyOptions.groupName || 'file-manager-folder';
   const group = fastify[groupName];
   if (!group?.services) {
-    throw new Error(`文件夹功能需要先注册 @kne/fastify-group（fastify.${groupName}）`);
+    throw new Error(`文件夹功能未就绪：缺少内部 group 命名空间 fastify['${groupName}']`);
   }
 
   const { services } = fastify.fileManager;
@@ -109,13 +109,8 @@ module.exports = fp(async (fastify, fastifyOptions) => {
     return ids;
   };
 
-  const enrichTree = async tree => {
-    const fileIds = collectFileIds(tree);
-    if (fileIds.length === 0) {
-      return tree;
-    }
-
-    const uniqueIds = [...new Set(fileIds.map(String))];
+  const loadFileMap = async fileIds => {
+    const uniqueIds = [...new Set((fileIds || []).map(String).filter(Boolean))];
     const fileMap = new Map();
     await Promise.all(
       uniqueIds.map(async id => {
@@ -123,33 +118,44 @@ module.exports = fp(async (fastify, fastifyOptions) => {
           const file = await services.fileRecord.getFileInstance({ id });
           fileMap.set(String(id), file);
         } catch (e) {
-          // 文件记录缺失时仍返回树节点
+          // 文件记录缺失时仍返回节点
         }
       })
     );
+    return fileMap;
+  };
 
-    const mapNode = node => {
-      const plain = { ...node };
-      const kind = getNodeKind(plain);
-      plain.options = Object.assign({}, plain.options, { kind });
-      if (kind === 'file' && plain.options.fileId) {
-        const file = fileMap.get(String(plain.options.fileId));
-        if (file) {
-          plain.options = Object.assign({}, plain.options, {
-            size: file.size,
-            mimetype: file.mimetype,
-            filename: file.filename
-          });
-          if (file.createdAt) {
-            plain.createdAt = file.createdAt;
-          }
-          if (file.updatedAt) {
-            plain.updatedAt = file.updatedAt;
-          }
+  const applyFileMeta = (node, fileMap) => {
+    const plain = { ...node };
+    const kind = getNodeKind(plain);
+    plain.options = Object.assign({}, plain.options, { kind });
+    if (kind === 'file' && plain.options.fileId) {
+      const file = fileMap.get(String(plain.options.fileId));
+      if (file) {
+        plain.options = Object.assign({}, plain.options, {
+          size: file.size,
+          mimetype: file.mimetype,
+          filename: file.filename
+        });
+        if (file.createdAt) {
+          plain.createdAt = file.createdAt;
+        }
+        if (file.updatedAt) {
+          plain.updatedAt = file.updatedAt;
         }
       }
-      if (plain.children?.length) {
-        plain.children = plain.children.map(mapNode);
+    }
+    return plain;
+  };
+
+  const enrichTree = async tree => {
+    const fileIds = collectFileIds(tree);
+    const fileMap = fileIds.length === 0 ? new Map() : await loadFileMap(fileIds);
+
+    const mapNode = node => {
+      const plain = applyFileMeta(node, fileMap);
+      if (node.children?.length) {
+        plain.children = node.children.map(mapNode);
       }
       return plain;
     };
@@ -157,12 +163,75 @@ module.exports = fp(async (fastify, fastifyOptions) => {
     return (tree || []).map(mapNode);
   };
 
-  const getTree = async ({ type, language, tenantId }) => {
+  const enrichNodes = async nodes => {
+    const list = nodes || [];
+    const fileIds = list
+      .filter(node => getNodeKind(node) === 'file' && node.options?.fileId)
+      .map(node => node.options.fileId);
+    const fileMap = await loadFileMap(fileIds);
+    return list.map(node => applyFileMeta(node, fileMap));
+  };
+
+  const filterFoldersOnly = tree =>
+    (tree || [])
+      .filter(node => getNodeKind(node) === 'folder')
+      .map(node => {
+        const plain = { ...node };
+        plain.options = Object.assign({}, plain.options, { kind: 'folder' });
+        plain.children = filterFoldersOnly(node.children);
+        return plain;
+      });
+
+  const sortSiblingNodes = (left, right) => {
+    const leftIsFolder = getNodeKind(left) === 'folder' ? 0 : 1;
+    const rightIsFolder = getNodeKind(right) === 'folder' ? 0 : 1;
+    if (leftIsFolder !== rightIsFolder) {
+      return leftIsFolder - rightIsFolder;
+    }
+    return String(left.name || '').localeCompare(String(right.name || ''), undefined, {
+      numeric: true,
+      sensitivity: 'base'
+    });
+  };
+
+  const getTree = async ({ type, language, tenantId, kind }) => {
     if (!type) {
       throw new Error('必须传入类型');
     }
     const tree = await groupServices.groupList({ type, language, output: 'tree', tenantId });
-    return enrichTree(tree);
+    const enriched = await enrichTree(tree);
+    if (kind === 'folder' || kind === 'foldersOnly') {
+      return filterFoldersOnly(enriched);
+    }
+    return enriched;
+  };
+
+  const getList = async ({ type, parentId, currentPage = 1, perPage = 20, keyword, language, tenantId }) => {
+    if (!type) {
+      throw new Error('必须传入类型');
+    }
+    const { Op } = fastify.sequelize.Sequelize;
+    const page = Math.max(1, Number(currentPage) || 1);
+    const size = Math.min(200, Math.max(1, Number(perPage) || 20));
+    const where = Object.assign(
+      { type, parentId: parentId || null },
+      language ? { language } : {},
+      tenantId != null ? { tenantId } : {}
+    );
+    const trimmedKeyword = String(keyword || '').trim();
+    if (trimmedKeyword) {
+      where.name = { [Op.like]: `%${trimmedKeyword}%` };
+    }
+
+    const rows = await group.models.tag.findAll({ where });
+    const plainRows = rows
+      .map(item => (typeof item.get === 'function' ? item.get({ plain: true }) : item))
+      .sort(sortSiblingNodes);
+    const totalCount = plainRows.length;
+    const start = (page - 1) * size;
+    const pageRows = plainRows.slice(start, start + size);
+    const pageData = await enrichNodes(pageRows);
+    return { pageData, totalCount };
   };
 
   const mkdir = async ({ type, name, parentId, language, tenantId }) => {
@@ -640,6 +709,7 @@ module.exports = fp(async (fastify, fastifyOptions) => {
   Object.assign(services, {
     folder: {
       getTree,
+      getList,
       mkdir,
       upload,
       remove,

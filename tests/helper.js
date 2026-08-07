@@ -16,11 +16,6 @@ module.exports = async function createTestApp(options = {}) {
     modelsGlobOptions: { syncOptions: {} }
   });
 
-  app.register(require('@kne/fastify-group'), {
-    prefix: '/api/v3/group',
-    getAuthenticate: () => async () => {}
-  });
-
   app.register(
     require('fastify-plugin')(async fastify => {
       await fastify.register(require('../index'), {
@@ -43,11 +38,13 @@ module.exports = async function createTestApp(options = {}) {
 
   await app.ready();
 
+  const groupName = options.groupName || 'file-manager-folder';
+
   return {
     app,
     services: app.fileManager.services,
     models: app.fileManager.models,
-    groupServices: app.group.services,
+    groupServices: app[groupName].services,
     tmpDir,
     async close() {
       await app.close();

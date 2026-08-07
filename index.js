@@ -23,9 +23,9 @@ module.exports = fp(
         createAuthenticate: () => {
           return [];
         },
-        // 文件夹能力依赖 @kne/fastify-group，需先注册；设为 false 可关闭
+        // 文件夹能力；插件内部自行注册 @kne/fastify-group，无需宿主再挂一份
         enableFolder: true,
-        groupName: 'group',
+        groupName: 'file-manager-folder',
         // 上传自动挂载文件系统时的默认业务域
         defaultFolderType: 'admin-file-system',
         getAuthenticate: () => {
@@ -35,6 +35,25 @@ module.exports = fp(
       options
     );
     await fs.ensureDir(options.root);
+
+    if (options.enableFolder !== false) {
+      const denyGroupHttp = () => [
+        async () => {
+          const err = new Error('Forbidden');
+          err.statusCode = 403;
+          throw err;
+        }
+      ];
+      await fastify.register(require('@kne/fastify-group'), {
+        name: options.groupName,
+        // 表名 = prefix + snakeCase(name + Model)，默认 t_ + file_manager_folder_tag
+        dbTableNamePrefix: options.groupDbTableNamePrefix || 't_',
+        // 仅使用 group 的 models/services；HTTP API 一律 403，业务走 folder/*
+        prefix: options.groupPrefix || `${options.prefix}/folder-group`,
+        getAuthenticate: denyGroupHttp
+      });
+    }
+
     fastify.register(require('@fastify/multipart'), options.multipart);
     fastify.register(require('@kne/fastify-namespace'), {
       name: 'fileManager',

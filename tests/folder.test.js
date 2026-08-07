@@ -376,4 +376,109 @@ describe('folder services', () => {
     assert.equal(tree[0].children[0].name, 'inbox');
     assert.equal(tree[0].children[0].children[0].options.fileId, body.id);
   });
+
+  it('should list folder children with pagination and folder-first order', async () => {
+    const type = 'fs-list';
+    const folder = await services.folder.mkdir({ type, name: 'Docs' });
+    await services.folder.mkdir({ type, name: 'Alpha', parentId: folder.id });
+    await services.folder.upload({
+      type,
+      parentId: folder.id,
+      file: {
+        filename: 'z-file.txt',
+        mimetype: 'text/plain',
+        encoding: 'utf-8',
+        buffer: testBuffer
+      }
+    });
+    await services.folder.upload({
+      type,
+      parentId: folder.id,
+      file: {
+        filename: 'a-file.txt',
+        mimetype: 'text/plain',
+        encoding: 'utf-8',
+        buffer: testBuffer
+      }
+    });
+    await services.folder.mkdir({ type, name: 'Beta', parentId: folder.id });
+
+    const page1 = await services.folder.getList({
+      type,
+      parentId: folder.id,
+      currentPage: 1,
+      perPage: 2
+    });
+    assert.equal(page1.totalCount, 4);
+    assert.equal(page1.pageData.length, 2);
+    assert.equal(page1.pageData[0].options.kind, 'folder');
+    assert.equal(page1.pageData[1].options.kind, 'folder');
+    assert.equal(page1.pageData[0].name, 'Alpha');
+    assert.equal(page1.pageData[1].name, 'Beta');
+
+    const page2 = await services.folder.getList({
+      type,
+      parentId: folder.id,
+      currentPage: 2,
+      perPage: 2
+    });
+    assert.equal(page2.pageData.length, 2);
+    assert.equal(page2.pageData[0].options.kind, 'file');
+    assert.equal(page2.pageData[1].options.kind, 'file');
+    assert.equal(page2.pageData[0].name, 'a-file.txt');
+    assert.equal(page2.pageData[1].name, 'z-file.txt');
+
+    const filtered = await services.folder.getList({
+      type,
+      parentId: folder.id,
+      currentPage: 1,
+      perPage: 10,
+      keyword: 'Alpha'
+    });
+    assert.equal(filtered.totalCount, 1);
+    assert.equal(filtered.pageData[0].name, 'Alpha');
+
+    const httpRes = await app.inject({
+      method: 'POST',
+      url: '/api/v3/static/folder/list',
+      payload: { type, parentId: folder.id, currentPage: 1, perPage: 10 }
+    });
+    assert.equal(httpRes.statusCode, 200);
+    const body = httpRes.json();
+    assert.equal(body.totalCount, 4);
+    assert.equal(body.pageData.length, 4);
+  });
+
+  it('should return folders-only tree when kind=folder', async () => {
+    const type = 'fs-tree-folder-only';
+    const folder = await services.folder.mkdir({ type, name: 'Root' });
+    await services.folder.upload({
+      type,
+      parentId: folder.id,
+      file: {
+        filename: 'secret.txt',
+        mimetype: 'text/plain',
+        encoding: 'utf-8',
+        buffer: testBuffer
+      }
+    });
+    await services.folder.mkdir({ type, name: 'Child', parentId: folder.id });
+
+    const fullTree = await services.folder.getTree({ type });
+    assert.equal(fullTree[0].children.length, 2);
+
+    const folderTree = await services.folder.getTree({ type, kind: 'folder' });
+    assert.equal(folderTree.length, 1);
+    assert.equal(folderTree[0].name, 'Root');
+    assert.equal(folderTree[0].children.length, 1);
+    assert.equal(folderTree[0].children[0].name, 'Child');
+    assert.equal(folderTree[0].children[0].options.kind, 'folder');
+
+    const httpRes = await app.inject({
+      method: 'GET',
+      url: `/api/v3/static/folder/tree?type=${type}&kind=folder`
+    });
+    assert.equal(httpRes.statusCode, 200);
+    assert.equal(httpRes.json()[0].children.length, 1);
+  });
 });
