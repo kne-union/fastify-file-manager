@@ -83,7 +83,7 @@ fastify.register(require('@kne/fastify-file-manager'), {
 上传文件并创建文件节点（multipart）。
 
 - 鉴权：`getAuthenticate('write')`
-- Query：`type`（必填）、`parentId?`、`namespace?`、`language?`
+- Query：`type`（必填）、`path?`（目标文件夹路径，空字符串或不传为根目录）、`namespace?`、`language?`
 
 #### `POST {prefix}/folder/remove`
 

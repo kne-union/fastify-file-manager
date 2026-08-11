@@ -442,13 +442,13 @@ module.exports = fp(async (fastify, options) => {
       onRequest: getFolderAuthenticate('write'),
       schema: {
         summary: '上传文件到文件夹',
-        description: '上传文件实体并在 group 中创建文件节点',
+        description: '上传文件实体并在 group 中创建文件节点。通过 path 定位目标目录（经 ensurePath 解析/创建；空字符串为根目录）',
         query: {
           type: 'object',
           required: ['type'],
           properties: {
             type: { type: 'string', description: '业务域类型' },
-            parentId: { type: 'string', description: '父文件夹 id' },
+            path: { type: 'string', description: '目标文件夹路径（如 a/b/c）；空字符串或不传表示根目录' },
             namespace: { type: 'string', description: '文件命名空间' },
             language: { type: 'string', description: '语言' }
           }
@@ -462,7 +462,7 @@ module.exports = fp(async (fastify, options) => {
       }
       return await services.folder.upload({
         type: request.query.type,
-        parentId: request.query.parentId,
+        path: request.query.path,
         namespace: request.query.namespace,
         language: request.query.language,
         file

@@ -30,7 +30,7 @@ describe('folder services', () => {
 
     const uploaded = await services.folder.upload({
       type,
-      parentId: folder.id,
+      path: 'Docs',
       file: {
         filename: 'hello.txt',
         mimetype: 'text/plain',
@@ -92,7 +92,7 @@ describe('folder services', () => {
     const folderB = await services.folder.mkdir({ type, name: 'B' });
     const uploaded = await services.folder.upload({
       type,
-      parentId: folderA.id,
+      path: 'A',
       file: {
         filename: 'move-me.txt',
         mimetype: 'text/plain',
@@ -127,7 +127,7 @@ describe('folder services', () => {
     const folderB = await services.folder.mkdir({ type, name: 'B' });
     const uploaded = await services.folder.upload({
       type,
-      parentId: folderA.id,
+      path: 'A',
       file: {
         filename: 'copy-me.txt',
         mimetype: 'text/plain',
@@ -236,7 +236,7 @@ describe('folder services', () => {
     const folder = await services.folder.mkdir({ type, name: 'Docs' });
     await services.folder.upload({
       type,
-      parentId: folder.id,
+      path: 'Docs',
       file: {
         filename: 'readme.txt',
         mimetype: 'text/plain',
@@ -246,7 +246,7 @@ describe('folder services', () => {
     });
     const duplicated = await services.folder.upload({
       type,
-      parentId: folder.id,
+      path: 'Docs',
       file: {
         filename: 'readme.txt',
         mimetype: 'text/plain',
@@ -258,7 +258,7 @@ describe('folder services', () => {
 
     const other = await services.folder.upload({
       type,
-      parentId: folder.id,
+      path: 'Docs',
       file: {
         filename: 'notes.txt',
         mimetype: 'text/plain',
@@ -275,6 +275,37 @@ describe('folder services', () => {
         }),
       /同一文件夹下已存在同名/
     );
+  });
+
+  it('should upload by path (empty path = root)', async () => {
+    const type = 'fs-upload-by-path';
+    const folder = await services.folder.mkdir({ type, name: 'Inbox' });
+
+    const uploaded = await services.folder.upload({
+      type,
+      path: 'Inbox',
+      file: {
+        filename: 'by-path.txt',
+        mimetype: 'text/plain',
+        encoding: 'utf-8',
+        buffer: Buffer.from('path-upload')
+      }
+    });
+    assert.equal(String(uploaded.parentId), String(folder.id));
+    assert.equal(uploaded.name, 'by-path.txt');
+
+    const rootUpload = await services.folder.upload({
+      type,
+      path: '',
+      file: {
+        filename: 'root.txt',
+        mimetype: 'text/plain',
+        encoding: 'utf-8',
+        buffer: Buffer.from('root')
+      }
+    });
+    assert.equal(rootUpload.parentId, null);
+    assert.equal(rootUpload.name, 'root.txt');
   });
 
   it('should ensurePath create nested folders and attachRecord mount file', async () => {
@@ -383,7 +414,7 @@ describe('folder services', () => {
     await services.folder.mkdir({ type, name: 'Alpha', parentId: folder.id });
     await services.folder.upload({
       type,
-      parentId: folder.id,
+      path: 'Docs',
       file: {
         filename: 'z-file.txt',
         mimetype: 'text/plain',
@@ -393,7 +424,7 @@ describe('folder services', () => {
     });
     await services.folder.upload({
       type,
-      parentId: folder.id,
+      path: 'Docs',
       file: {
         filename: 'a-file.txt',
         mimetype: 'text/plain',
@@ -454,7 +485,7 @@ describe('folder services', () => {
     const folder = await services.folder.mkdir({ type, name: 'Root' });
     await services.folder.upload({
       type,
-      parentId: folder.id,
+      path: 'Root',
       file: {
         filename: 'secret.txt',
         mimetype: 'text/plain',
