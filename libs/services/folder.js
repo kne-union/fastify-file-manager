@@ -253,7 +253,7 @@ module.exports = fp(async (fastify, fastifyOptions) => {
     return typeof tag.get === 'function' ? tag.get({ plain: true }) : tag;
   };
 
-  const upload = async ({ type, parentId, file, namespace, language, tenantId }) => {
+  const upload = async ({ type, path: folderPath = '', file, namespace, language, tenantId }) => {
     if (!type) {
       throw new Error('必须传入类型');
     }
@@ -261,7 +261,8 @@ module.exports = fp(async (fastify, fastifyOptions) => {
       throw new Error('不能获取到上传文件');
     }
 
-    const targetParentId = parentId || null;
+    const targetParentId = await ensurePath({ type, path: folderPath, language, tenantId });
+
     const uniqueName = await allocateUniqueSiblingName({
       type,
       parentId: targetParentId,
