@@ -5,11 +5,14 @@ const os = require('node:os');
 
 let counter = 0;
 
-module.exports = async function createTestApp(options = {}) {
+module.exports = async function createTestApp(options = {}, setup) {
   const tmpDir = path.resolve(os.tmpdir(), `test_file_manager_${Date.now()}_${++counter}_${Math.random().toString(36).slice(2)}`);
   await fs.ensureDir(tmpDir);
 
   const app = fastify({ logger: false });
+  if (typeof setup === 'function') {
+    setup(app);
+  }
 
   app.register(require('@kne/fastify-sequelize'), {
     db: { storage: ':memory:' },
