@@ -1,5 +1,6 @@
 const fp = require('fastify-plugin');
 const path = require('node:path');
+const os = require('node:os');
 const fs = require('fs-extra');
 const packageJson = require('./package.json');
 
@@ -30,11 +31,24 @@ module.exports = fp(
         defaultFolderType: 'admin-file-system',
         getAuthenticate: () => {
           return [];
-        }
+        },
+        thumbnailConcurrency: Math.max(1, Math.min(4, os.cpus().length - 1)),
+        thumbnailHeavyConcurrency: 1,
+        thumbnailMaxQueue: 100,
+        thumbnailTimeout: 15 * 1000,
+        thumbnailMaxCacheSize: 200 * 1024 * 1024,
+        thumbnailMaxPixels: 40 * 1000 * 1000,
+        thumbnailImageMaxFileSize: 50 * 1024 * 1024,
+        thumbnailPdfMaxFileSize: 50 * 1024 * 1024
       },
       options
     );
+    // 缩略图缓存默认与 root 同级：root 整个挂在静态文件服务下，放进去会绕过鉴权
+    if (!options.thumbnailRoot) {
+      options.thumbnailRoot = `${path.resolve(options.root)}-thumbnails`;
+    }
     await fs.ensureDir(options.root);
+    await fs.ensureDir(options.thumbnailRoot);
 
     if (options.enableFolder !== false) {
       const denyGroupHttp = () => [

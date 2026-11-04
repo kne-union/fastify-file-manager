@@ -8,8 +8,12 @@ let counter = 0;
 module.exports = async function createTestApp(options = {}, setup) {
   const tmpDir = path.resolve(os.tmpdir(), `test_file_manager_${Date.now()}_${++counter}_${Math.random().toString(36).slice(2)}`);
   await fs.ensureDir(tmpDir);
+  const thumbnailRoot = `${tmpDir}-thumbnails`;
 
   const app = fastify({ logger: false });
+  app.addHook('onClose', async () => {
+    await fs.remove(thumbnailRoot).catch(() => {});
+  });
   if (typeof setup === 'function') {
     setup(app);
   }
@@ -23,6 +27,7 @@ module.exports = async function createTestApp(options = {}, setup) {
     require('fastify-plugin')(async fastify => {
       await fastify.register(require('../index'), {
         root: tmpDir,
+        thumbnailRoot,
         namespace: 'test',
         prefix: '/api/v3/static',
         ossAdapter: () => ({}),
@@ -49,6 +54,7 @@ module.exports = async function createTestApp(options = {}, setup) {
     models: app.fileManager.models,
     groupServices: app[groupName].services,
     tmpDir,
+    thumbnailRoot,
     async close() {
       await app.close();
       await fs.remove(tmpDir).catch(() => {});

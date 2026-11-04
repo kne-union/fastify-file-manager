@@ -212,6 +212,35 @@ module.exports = fp(async (fastify, options) => {
     }
   );
 
+  fastify.get(
+    `${options.prefix}/thumbnail/:id`,
+    {
+      onRequest: options.createAuthenticate('file:read'),
+      schema: {
+        tags: [TAG_FILE],
+        summary: '获取文件缩略图',
+        description:
+          '输出 50x50 的 webp 缩略图（非 JSON），支持图片、PDF 首页、视频首帧，首次生成后缓存到本地。宿主未安装对应依赖（sharp / pdfjs-dist + @napi-rs/canvas / ffmpeg-static）、类型不支持或生成失败时返回 404；生成队列已满时返回 503 并带 Retry-After',
+        params: {
+          type: 'object',
+          required: ['id'],
+          properties: {
+            id: { type: 'string', description: '文件id（uuid，兼容主键）' }
+          }
+        },
+        response: {
+          200: { description: '缩略图二进制内容，Content-Type 为 image/webp' }
+        }
+      }
+    },
+    async (request, reply) => {
+      const buffer = await services.thumbnail.getThumbnail({ id: request.params.id });
+      reply.header('Content-Type', 'image/webp');
+      reply.header('Cache-Control', 'private, max-age=86400');
+      return reply.send(buffer);
+    }
+  );
+
   fastify.post(
     `${options.prefix}/file-list`,
     {
