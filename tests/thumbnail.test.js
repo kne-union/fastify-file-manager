@@ -49,6 +49,11 @@ describe('thumbnail', () => {
   let testApp, app, services, thumbnailRoot;
 
   const setup = async (options = {}) => {
+    // 同一用例内换配置时先关掉上一个实例，避免残留连接与临时目录
+    if (testApp) {
+      await testApp.close();
+      testApp = null;
+    }
     testApp = await createTestApp(options);
     app = testApp.app;
     services = testApp.services;
@@ -58,6 +63,13 @@ describe('thumbnail', () => {
   const upload = (filename, buffer, mimetype) => services.fileRecord.uploadToFileSystem({ file: { filename, mimetype, encoding: 'binary', buffer } });
 
   const request = id => app.inject({ method: 'GET', url: `${prefix}/thumbnail/${id}` });
+
+  const batch = (ids, payload) =>
+    app.inject({
+      method: 'POST',
+      url: `${prefix}/thumbnails`,
+      payload: payload === undefined ? { ids } : payload
+    });
 
   const spyGenerator = (kind, { delay = 0 } = {}) => {
     const original = services.thumbnail.generators[kind];
@@ -79,7 +91,10 @@ describe('thumbnail', () => {
   const listCache = async () => (await fs.readdir(thumbnailRoot)).sort();
 
   afterEach(async () => {
-    await testApp.close();
+    if (testApp) {
+      await testApp.close();
+      testApp = null;
+    }
   });
 
   describe('生成', () => {
@@ -248,6 +263,71 @@ describe('thumbnail', () => {
       assert.equal(meta.width, 50);
       assert.ok(canvasSizes.length > 0);
       assert.ok(canvasSizes.every(([width, height]) => Math.max(width, height) <= 200));
+    });
+  });
+
+  describe('批量接口', () => {
+    beforeEach(() => setup());
+
+    it('混合 ok、none 和不存在的 id，全部返回 200', async () => {
+      const png = await upload('a.png', await createPng(200, 100), 'image/png');
+      const txt = await upload('a.txt', Buffer.from('hello'), 'text/plain');
+      const res = await batch([png.id, txt.id, 'not-exist-id']);
+      assert.equal(res.statusCode, 200);
+      const data = res.json();
+      assert.equal(data[png.id].status, 'ok');
+      assert.match(data[png.id].data, /^data:image\/webp;base64,/);
+      const buffer = Buffer.from(data[png.id].data.split(',')[1], 'base64');
+      const meta = await sharp(buffer).metadata();
+      assert.equal(meta.format, 'webp');
+      assert.equal(meta.width, 50);
+      assert.equal(meta.height, 50);
+      assert.deepEqual(data[txt.id], { status: 'none' });
+      assert.deepEqual(data['not-exist-id'], { status: 'none' });
+    });
+
+    it('重复 id 只生成一次', async () => {
+      const stats = spyGenerator('image');
+      const file = await upload('a.png', await createPng(100, 100), 'image/png');
+      const res = await batch([file.id, file.id, file.id]);
+      assert.equal(res.statusCode, 200);
+      assert.equal(res.json()[file.id].status, 'ok');
+      assert.equal(stats.calls, 1);
+    });
+
+    it('ids 不合法返回 400', async () => {
+      assert.equal((await batch([], { ids: [] })).statusCode, 400);
+      assert.equal((await batch([], {})).statusCode, 400);
+      assert.equal((await batch([], { ids: Array.from({ length: 11 }, (_, i) => `id-${i}`) })).statusCode, 400);
+    });
+
+    it('队列满时该文件返回 pending，整批仍为 200', async () => {
+      await setup({ thumbnailConcurrency: 1, thumbnailMaxQueue: 2 });
+      spyGenerator('image', { delay: 100 });
+      const ids = [];
+      for (let i = 0; i < 6; i++) {
+        ids.push((await upload(`${i}.png`, await createPng(60, 60, { r: i * 30, g: 0, b: 0 }), 'image/png')).id);
+      }
+      const res = await batch(ids);
+      assert.equal(res.statusCode, 200);
+      const data = res.json();
+      const statuses = ids.map(id => data[id].status);
+      assert.ok(statuses.includes('ok'));
+      assert.ok(statuses.includes('pending'));
+      assert.ok(statuses.every(status => ['ok', 'pending'].includes(status)));
+    });
+
+    it('超过等待上限返回 pending，任务继续生成，下次请求命中缓存', async () => {
+      await setup({ thumbnailBatchWait: 50 });
+      spyGenerator('image', { delay: 300 });
+      const file = await upload('a.png', await createPng(60, 60), 'image/png');
+      const first = await batch([file.id]);
+      assert.equal(first.statusCode, 200);
+      assert.deepEqual(first.json()[file.id], { status: 'pending' });
+
+      await sleep(400);
+      const second = await batch([file.id]);
+      assert.equal(second.json()[file.id].status, 'ok');
     });
   });
 

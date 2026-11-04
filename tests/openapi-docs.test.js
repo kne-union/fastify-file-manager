@@ -37,7 +37,7 @@ describe('接口文档', () => {
       checkProps(`${name} params`, schema.params);
     });
     await testApp.close();
-    assert.equal(routes.length, 19);
+    assert.equal(routes.length, 20);
     assert.deepEqual(missing, []);
   });
 });
