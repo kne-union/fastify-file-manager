@@ -415,6 +415,8 @@ module.exports = fp(async (fastify, fastifyOptions) => {
     }
   };
 
+  const toDataUrl = buffer => `data:image/webp;base64,${buffer.toString('base64')}`;
+
   const getThumbnail = async ({ id }) => {
     const file = await services.fileRecord.getFileInstance({ id });
     const kind = await resolveKind(file);
@@ -441,9 +443,54 @@ module.exports = fp(async (fastify, fastifyOptions) => {
     return inflight.get(key);
   };
 
+  /**
+   * 批量获取缩略图：复用 getThumbnail（缓存、同 hash 去重、并发信号量都不变），
+   * 每个 id 只回 ok / none / pending 三种状态，不向外抛错——单个文件失败不应该让整批失败。
+   * 整体等待上限 thumbnailBatchWait，超时的任务仍在后台继续生成并写入缓存，下次请求直接命中。
+   */
+  const getThumbnails = async ({ ids }) => {
+    const uniqueIds = Array.from(new Set(ids));
+    // 结果以文件 id 为 key，用无原型对象避免 __proto__ 之类的 id 走到原型赋值上
+    const results = Object.create(null);
+    uniqueIds.forEach(id => {
+      results[id] = { status: 'pending' };
+    });
+
+    let timer;
+    const expired = new Promise(resolve => {
+      timer = setTimeout(resolve, fastifyOptions.thumbnailBatchWait);
+    });
+
+    const tasks = uniqueIds.map(async id => {
+      try {
+        results[id] = { status: 'ok', data: toDataUrl(await getThumbnail({ id })) };
+      } catch (error) {
+        const status = error.statusCode || error.status;
+        if (status === 503) {
+          // 队列满：等下一个批次再来
+          results[id] = { status: 'pending' };
+        } else if (status === 404) {
+          // 类型不支持、文件不存在、生成失败（含超时写下的失败标记）
+          results[id] = { status: 'none' };
+        } else {
+          fastify.log.warn(error, `批量获取缩略图失败: ${id}`);
+          results[id] = { status: 'none' };
+        }
+      }
+    });
+
+    try {
+      await Promise.race([Promise.all(tasks), expired]);
+    } finally {
+      clearTimeout(timer);
+    }
+    return results;
+  };
+
   Object.assign(services, {
     thumbnail: {
       getThumbnail,
+      getThumbnails,
       runCleanup,
       loaders,
       generators

@@ -59,6 +59,7 @@ Fastify File Manager 是一个基于 Fastify 框架构建的高性能文件管�
 | `thumbnailHeavyConcurrency` | number   | `1`                                  | 否  | PDF / 视频任务同时运行上限（同时计入 `thumbnailConcurrency`）                      |
 | `thumbnailMaxQueue`         | number   | `100`                                | 否  | 等待生成的任务数上限，超过返回 503 + `Retry-After: 1`                              |
 | `thumbnailTimeout`          | number   | `15000`                              | 否  | 单个任务超时（毫秒），超时返回 404 并写失败标记                                         |
+| `thumbnailBatchWait`        | number   | `8000`                               | 否  | 批量接口的整体等待上限（毫秒），没赶上的 id 返回 `pending`，生成任务继续在后台跑                      |
 | `thumbnailMaxCacheSize`     | number   | `209715200` (200MB)                  | 否  | 缓存容量上限，超过后按最久未使用删到 80%；`0` 表示不限制                                  |
 | `thumbnailMaxPixels`        | number   | `40000000`                           | 否  | 图片像素数上限（解码内存约为像素数 × 4 字节），超过不生成                                   |
 | `thumbnailImageMaxFileSize` | number   | `52428800` (50MB)                    | 否  | 图片文件大小上限，超过不生成                                                      |
@@ -222,6 +223,47 @@ curl -X POST \
 - 鉴权：`createAuthenticate('file:read')`
 - Params：`id`（文件 uuid，兼容主键）
 
+##### `POST {prefix}/thumbnails`
+
+一次获取最多 10 个文件的缩略图（JSON）。前端列表页推荐用这个接口：一屏只发少量请求，不支持缩略图的文件在结果里标记为 `none`，不会再在浏览器控制台留下大量 404。
+
+- 鉴权：`createAuthenticate('file:read')`
+- Body：`{ ids: string[] }`，`minItems: 1`、`maxItems: 10`
+
+###### 响应结构
+
+返回以文件 id 为 key 的对象（由宿主统一包装成 `{ code, data }`），每个 id 的 `status` 取值：
+
+| status    | 含义                                                     | data           |
+|-----------|--------------------------------------------------------|----------------|
+| `ok`      | 生成成功                                                   | `data:image/webp;base64,...` |
+| `none`    | 类型不支持、文件不存在、依赖未安装、超过大小/像素上限、生成失败或超时                    | 无              |
+| `pending` | 生成队列已满，或超过 `thumbnailBatchWait` 仍未完成；任务仍在后台继续生成，稍后重试可直接命中缓存 | 无              |
+
+```json
+{
+  "code": 0,
+  "data": {
+    "8f3c...": { "status": "ok", "data": "data:image/webp;base64,UklGR..." },
+    "1a2b...": { "status": "none" },
+    "5c6d...": { "status": "pending" }
+  }
+}
+```
+
+###### 响应状态码
+
+| 状态码 | 描述                                                    |
+|-----|-------------------------------------------------------|
+| 200 | 已返回结果，单个文件的失败只体现在对应的 `status` 上                       |
+| 400 | `ids` 缺失、为空或超过 10 个                                    |
+| 401 | 未授权访问                                                 |
+
+###### 与其他接口的关系
+
+- 内部复用单文件缩略图的生成与缓存逻辑：同一文件（相同 hash）在一批内只生成一次，缓存、并发上限、失败标记全部共用
+- 单个 `GET {prefix}/thumbnail/:id` 接口保留，供不需要批量能力的场景使用（如 `<img src>` + 自定义鉴权）
+
 ###### 依赖安装
 
 生成依赖由宿主项目按需安装，没装的格式直接返回 404：
@@ -261,28 +303,21 @@ npm i sharp ffmpeg-static pdfjs-dist @napi-rs/canvas
 
 ###### 前端用法
 
-接口需要鉴权，若鉴权依赖请求头（token），`<img src>` 无法携带，需要 `fetch` 后转成 blob URL。按每组 10 个请求：
+接口需要鉴权，若鉴权依赖请求头（token），`<img src>` 无法携带。改用批量接口：返回的 `ok` 结果本身就是 data URL，直接赋给 `src` 即可，不需要 objectURL 也就不需要 `revoke`。`@kne-components/components-file-manager` 的 `createThumbnailLoader` 就是这个策略——同一轮渲染内的 id 合并成一批，满 10 个或下一 tick 发送，最多 2 批在途：
 
 ```javascript
-const loadThumbnails = async (ids, headers) => {
-  const result = {};
-  for (let i = 0; i < ids.length; i += 10) {
-    await Promise.all(
-      ids.slice(i, i + 10).map(async id => {
-        for (let retry = 0; retry < 3; retry++) {
-          const res = await fetch(`${prefix}/thumbnail/${id}`, { headers });
-          if (res.status === 503) {
-            await new Promise(resolve => setTimeout(resolve, Number(res.headers.get('Retry-After') || 1) * 1000));
-            continue;
-          }
-          // 404 时 result[id] 为空，显示文件类型图标
-          if (res.ok) result[id] = URL.createObjectURL(await res.blob());
-          return;
-        }
-      })
-    );
-  }
-  return result;
+const fetchThumbnails = async (ids, headers) => {
+  const res = await fetch(`${prefix}/thumbnails`, {
+    method: 'POST',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ids: ids.slice(0, 10) })
+  });
+  // 旧版服务端（3.1.x）没有这个路由，返回 404；此时前端应整体停用缩略图，回退为类型图标
+  if (!res.ok) return null;
+  const { code, data } = await res.json();
+  if (code !== 0) return null;
+  // data[id].status：ok 直接用 data；none 回退类型图标且不再请求；pending 稍后重试
+  return data;
 };
 ```
 

@@ -36,6 +36,8 @@ module.exports = fp(
         thumbnailHeavyConcurrency: 1,
         thumbnailMaxQueue: 100,
         thumbnailTimeout: 15 * 1000,
+        // 批量接口的整体等待上限：没赶上的 id 返回 pending，生成任务继续在后台跑
+        thumbnailBatchWait: 8 * 1000,
         thumbnailMaxCacheSize: 200 * 1024 * 1024,
         thumbnailMaxPixels: 40 * 1000 * 1000,
         thumbnailImageMaxFileSize: 50 * 1024 * 1024,

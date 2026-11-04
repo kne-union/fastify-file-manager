@@ -1,5 +1,5 @@
 const fp = require('fastify-plugin');
-const { num, list, success, empty, fileRecordProperties, fileRecord, folderNode, folderTreeNode } = require('../schema/response');
+const { str, num, obj, list, success, empty, fileRecordProperties, fileRecord, folderNode, folderTreeNode } = require('../schema/response');
 
 const DEFAULT_FOLDER_TYPE = 'admin-file-system';
 
@@ -238,6 +238,42 @@ module.exports = fp(async (fastify, options) => {
       reply.header('Content-Type', 'image/webp');
       reply.header('Cache-Control', 'private, max-age=86400');
       return reply.send(buffer);
+    }
+  );
+
+  fastify.post(
+    `${options.prefix}/thumbnails`,
+    {
+      onRequest: options.createAuthenticate('file:read'),
+      schema: {
+        tags: [TAG_FILE],
+        summary: '批量获取文件缩略图',
+        description:
+          '一次获取最多 10 个文件的缩略图，代替逐个请求单文件接口产生大量 404。返回以文件 id 为 key 的对象，每个 id 的 status 为 ok（带 data URL）、none（类型不支持、文件不存在或生成失败）或 pending（生成排队中或超过 thumbnailBatchWait，稍后重试可命中缓存）；接口固定返回 200，仅 ids 不合法时返回 400',
+        body: {
+          type: 'object',
+          required: ['ids'],
+          properties: {
+            ids: {
+              type: 'array',
+              minItems: 1,
+              maxItems: 10,
+              items: { type: 'string', description: '文件id（uuid，兼容主键）' },
+              description: '文件 id 列表，最多 10 个，重复 id 只生成一次'
+            }
+          }
+        },
+        response: success('以文件 id 为 key 的缩略图结果', {
+          type: 'object',
+          additionalProperties: obj('单个文件的缩略图结果', {
+            status: str('ok 生成成功；none 不支持缩略图或生成失败；pending 排队中或超过等待上限'),
+            data: str('status 为 ok 时的缩略图 data URL（data:image/webp;base64,...）')
+          })
+        })
+      }
+    },
+    async request => {
+      return await services.thumbnail.getThumbnails({ ids: request.body.ids });
     }
   );
 
