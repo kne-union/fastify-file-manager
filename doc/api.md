@@ -18,6 +18,16 @@
 | `groupDbTableNamePrefix`    | string   | `'t_'`                               | 否  | 内部 group 表名前缀（最终表如 `t_file_manager_folder_tag`）                      |
 | `defaultFolderType`         | string   | `'admin-file-system'`                | 否  | 文件夹相关默认业务域 type（上传自动挂载、`folder/tree`、`folder/add-files` 未传 type 时使用） |
 | `getAuthenticate`           | function | `() => []`                           | 否  | 文件夹接口认证工厂，入参 `read` \| `write` \| `delete`，应在 hook 内按 `request.type` 鉴权 |
+| **缩略图**                     |          |                                      |    |                                                                     |
+| `thumbnailRoot`             | string   | `` `${root}-thumbnails` ``           | 否  | 缩略图本地缓存目录；不要放在 `root` 内（`root` 由静态文件服务公开，会绕过鉴权）               |
+| `thumbnailConcurrency`      | number   | `max(1, min(4, CPU 核数 - 1))`         | 否  | 同时生成缩略图的任务数上限                                                       |
+| `thumbnailHeavyConcurrency` | number   | `1`                                  | 否  | PDF / 视频任务同时运行上限（同时计入 `thumbnailConcurrency`）                      |
+| `thumbnailMaxQueue`         | number   | `100`                                | 否  | 等待生成的任务数上限，超过返回 503 + `Retry-After: 1`                              |
+| `thumbnailTimeout`          | number   | `15000`                              | 否  | 单个任务超时（毫秒），超时返回 404 并写失败标记                                         |
+| `thumbnailMaxCacheSize`     | number   | `209715200` (200MB)                  | 否  | 缓存容量上限，超过后按最久未使用删到 80%；`0` 表示不限制                                  |
+| `thumbnailMaxPixels`        | number   | `40000000`                           | 否  | 图片像素数上限（解码内存约为像素数 × 4 字节），超过不生成                                   |
+| `thumbnailImageMaxFileSize` | number   | `52428800` (50MB)                    | 否  | 图片文件大小上限，超过不生成                                                      |
+| `thumbnailPdfMaxFileSize`   | number   | `52428800` (50MB)                    | 否  | PDF 文件大小上限，超过不生成（视频只截一帧，不限制大小）                                    |
 
 ### 配置示例
 
@@ -165,6 +175,81 @@ curl -X POST \
 | 401 | 未授权访问     |
 | 413 | 文件大小超过限制  |
 | 500 | 服务器错误     |
+
+---
+
+### 文件缩略图接口
+
+#### `GET {prefix}/thumbnail/:id`
+
+返回 50x50 的 webp 缩略图（二进制，`Content-Type: image/webp`，`Cache-Control: private, max-age=86400`）。支持图片、PDF 首页、视频首帧，首次生成后按文件内容 hash 缓存到 `thumbnailRoot`。
+
+- 鉴权：`createAuthenticate('file:read')`
+- Params：`id`（文件 uuid，兼容主键）
+
+##### 依赖安装
+
+生成依赖由宿主项目按需安装，没装的格式直接返回 404：
+
+```bash
+npm i sharp ffmpeg-static pdfjs-dist @napi-rs/canvas
+```
+
+| 缺少的依赖                               | 影响             |
+|-------------------------------------|----------------|
+| `sharp`                             | 所有格式都不生成缩略图    |
+| `pdfjs-dist` 或 `@napi-rs/canvas`     | 只跳过 PDF        |
+| `ffmpeg-static`                     | 只跳过视频          |
+
+`pdfjs-dist` 6.x 要求 Node `>=22.13`，`sharp` 0.35 要求 Node `>=20.9`；Node 版本较低时请安装与之兼容的旧版本。
+
+##### 响应状态码
+
+| 状态码 | 描述                                           |
+|-----|----------------------------------------------|
+| 200 | 缩略图                                          |
+| 404 | 类型不支持、依赖未安装、超过大小/像素上限、生成失败或超时（失败结果缓存 1 天）      |
+| 503 | 生成队列已满，按 `Retry-After` 稍后重试                    |
+
+##### 生成与缓存策略
+
+- 同一文件（相同 hash）并发请求只生成一次
+- 生成任务受 `thumbnailConcurrency` 限制，PDF / 视频额外受 `thumbnailHeavyConcurrency` 限制
+- 缓存先写临时文件再 rename，多进程共享目录时不会读到写了一半的文件
+- 每次准备生成前检查缓存容量，超过 `thumbnailMaxCacheSize` 时后台清理：按最久未使用删到上限的 80%，并清掉残留临时文件与过期失败标记
+- OSS 文件：图片先落临时文件；PDF / 视频优先用 `ossAdapter.getFileLink` 的签名 URL 按需读取片段
+
+##### 内存建议
+
+- 默认配置下 Node 进程峰值额外占用约 600MB（3 个图片任务各约 160MB + 1 个 PDF 任务）；内存紧张时调小 `thumbnailConcurrency` 或 `thumbnailMaxPixels`
+- Linux glibc 环境下 sharp 长期运行可能因内存碎片导致常驻内存只涨不降，生产环境建议使用 jemalloc（如 `LD_PRELOAD`）或 Alpine（musl）镜像
+
+##### 前端用法
+
+接口需要鉴权，若鉴权依赖请求头（token），`<img src>` 无法携带，需要 `fetch` 后转成 blob URL。按每组 10 个请求：
+
+```javascript
+const loadThumbnails = async (ids, headers) => {
+  const result = {};
+  for (let i = 0; i < ids.length; i += 10) {
+    await Promise.all(
+      ids.slice(i, i + 10).map(async id => {
+        for (let retry = 0; retry < 3; retry++) {
+          const res = await fetch(`${prefix}/thumbnail/${id}`, { headers });
+          if (res.status === 503) {
+            await new Promise(resolve => setTimeout(resolve, Number(res.headers.get('Retry-After') || 1) * 1000));
+            continue;
+          }
+          // 404 时 result[id] 为空，显示文件类型图标
+          if (res.ok) result[id] = URL.createObjectURL(await res.blob());
+          return;
+        }
+      })
+    );
+  }
+  return result;
+};
+```
 
 ---
 

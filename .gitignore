@@ -131,3 +131,6 @@ pnpm-lock.yaml
 package-lock.json
 tests/database.sqlite
 tests/static
+
+prompts
+graphify-out

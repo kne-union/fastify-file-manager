@@ -11,3 +11,5 @@ jobs:
     secrets: inherit
     with:
       package_name: '@kne/fastify-file-manager'
+      run_test: true
+      node-versions: '["22","24","26"]'
